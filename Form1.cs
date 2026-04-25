@@ -270,8 +270,8 @@ public partial class Form1 : Form
         panel.Controls.Add(body);
 
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
-        _upButton.Text = "docker compose up -d";
-        _downButton.Text = "docker compose down";
+        _upButton.Text = "起動";
+        _downButton.Text = "停止";
         _refreshServicesButton.Text = "状態更新";
         _upButton.AutoSize = _downButton.AutoSize = _refreshServicesButton.AutoSize = true;
         _upButton.Click += async (_, _) => await RunBusyAsync(async () =>
@@ -435,13 +435,14 @@ public partial class Form1 : Form
 
         try
         {
-            using var document = JsonDocument.Parse(result.Output);
-            foreach (var service in document.RootElement.EnumerateArray())
+            foreach (var line in result.Output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
+                using var document = JsonDocument.Parse(line);
+                var service = document.RootElement;
                 var item = new ListViewItem(GetJsonString(service, "Service"));
                 item.SubItems.Add(GetJsonString(service, "State"));
                 item.SubItems.Add(GetJsonString(service, "Status"));
-                item.SubItems.Add(FormatPublishers(service));
+                item.SubItems.Add(FormatPorts(service));
                 _serviceList.Items.Add(item);
             }
         }
@@ -716,6 +717,12 @@ public partial class Form1 : Form
     private static string GetJsonString(JsonElement element, string name)
     {
         return element.TryGetProperty(name, out var value) ? value.ToString() : "";
+    }
+
+    private static string FormatPorts(JsonElement service)
+    {
+        var ports = GetJsonString(service, "Ports");
+        return string.IsNullOrWhiteSpace(ports) ? FormatPublishers(service) : ports;
     }
 
     private static string FormatPublishers(JsonElement service)
