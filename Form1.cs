@@ -289,7 +289,7 @@ public partial class Form1 : Form
         _checkoutStatus.MaximumSize = new Size(420, 0);
         _checkoutStatus.Text = "チェックアウト状態: 確認中";
 
-        _fetchTagsButton.Text = "fetch / タグ取得";
+        _fetchTagsButton.Text = "バージョン一覧の更新";
         _fetchTagsButton.AutoSize = true;
         _fetchTagsButton.Click += async (_, _) => await RunBusyAsync(FetchTagsAsync);
 
