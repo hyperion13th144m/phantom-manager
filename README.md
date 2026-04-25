@@ -51,6 +51,22 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 
 成果物は `..\app\phantom-manager.exe` に作成されます。
 
+## Release 作成
+
+GitHub Release 用の zip 作成、タグ push、Release へのアップロードは次のスクリプトで実行できます。
+
+```powershell
+.\release.ps1 -Version v1.0.0
+```
+
+実行には GitHub CLI のログインが必要です。
+
+```powershell
+gh auth status
+```
+
+スクリプトは作業ツリーが clean であることを確認してから、`..\dist` に publish 結果と zip を作成します。
+
 ## 簡単な使い方
 
 1. `phantom-manager.exe` を起動します。
