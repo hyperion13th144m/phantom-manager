@@ -125,7 +125,9 @@ public partial class Form1 : Form
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
-            AutoSize = true,
+            AutoSize = false,
+            Height = 165,
+            MinimumSize = new Size(0, 165),
             ColumnCount = 3,
             Padding = new Padding(0, 0, 0, 10),
         };
@@ -163,7 +165,8 @@ public partial class Form1 : Form
         var panel = NewGroup("データディレクトリ");
         var body = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
+            AutoSize = true,
             RowCount = 3,
             ColumnCount = 2,
         };
@@ -211,7 +214,8 @@ public partial class Form1 : Form
         var panel = NewGroup("バージョン");
         var body = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
+            AutoSize = true,
             RowCount = 3,
             ColumnCount = 2,
         };
@@ -617,6 +621,7 @@ public partial class Form1 : Form
         Dock = DockStyle.Fill,
         Padding = new Padding(10),
         Margin = new Padding(0, 0, 10, 10),
+        MinimumSize = new Size(0, 145),
     };
 
     private static FlowLayoutPanel NewVertical() => new()
