@@ -23,7 +23,9 @@ public partial class Form1 : Form
     private readonly Button _fetchTagsButton = new();
     private readonly Button _checkoutButton = new();
     private readonly Button _saveEnvButton = new();
+    private readonly Button _refreshChecksButton = new();
     private readonly Button _cloneButton = new();
+    private bool _anyServiceRunning;
 
     public Form1()
     {
@@ -160,9 +162,10 @@ public partial class Form1 : Form
         body.Controls.Add(_gitStatus);
         body.Controls.Add(_repoStatus);
 
-        var refreshButton = NewButton("再チェック");
-        refreshButton.Click += async (_, _) => await RefreshAllAsync();
-        body.Controls.Add(refreshButton);
+        _refreshChecksButton.Text = "再チェック";
+        _refreshChecksButton.AutoSize = true;
+        _refreshChecksButton.Click += async (_, _) => await RefreshAllAsync();
+        body.Controls.Add(_refreshChecksButton);
         return panel;
     }
 
@@ -422,6 +425,7 @@ public partial class Form1 : Form
     private async Task RefreshServicesAsync()
     {
         _serviceList.Items.Clear();
+        _anyServiceRunning = false;
         if (!IsReleaseRepoReady())
         {
             return;
@@ -440,10 +444,15 @@ public partial class Form1 : Form
                 using var document = JsonDocument.Parse(line);
                 var service = document.RootElement;
                 var item = new ListViewItem(GetJsonString(service, "Service"));
-                item.SubItems.Add(GetJsonString(service, "State"));
+                var state = GetJsonString(service, "State");
+                item.SubItems.Add(state);
                 item.SubItems.Add(GetJsonString(service, "Status"));
                 item.SubItems.Add(FormatPorts(service));
                 _serviceList.Items.Add(item);
+                if (IsRunningState(state))
+                {
+                    _anyServiceRunning = true;
+                }
             }
         }
         catch (JsonException)
@@ -619,15 +628,17 @@ public partial class Form1 : Form
     {
         Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
         var repoReady = IsReleaseRepoReady();
-        var canRunCompose = repoReady && File.Exists(EnvPath) && IsTagCheckedOut();
+        var canStartCompose = repoReady && File.Exists(EnvPath) && IsTagCheckedOut() && !_anyServiceRunning;
+        var canStopOrRefreshServices = repoReady && _anyServiceRunning;
         UpdateCheckoutStatus();
         _cloneButton.Enabled = !busy && !Directory.Exists(ReleaseDir);
-        _saveEnvButton.Enabled = !busy && Directory.Exists(ReleaseDir);
-        _upButton.Enabled = !busy && canRunCompose;
-        _downButton.Enabled = !busy && canRunCompose;
-        _refreshServicesButton.Enabled = !busy && repoReady;
-        _fetchTagsButton.Enabled = !busy && repoReady;
-        _checkoutButton.Enabled = !busy && repoReady;
+        _refreshChecksButton.Enabled = !busy && !_anyServiceRunning;
+        _saveEnvButton.Enabled = !busy && Directory.Exists(ReleaseDir) && !_anyServiceRunning;
+        _upButton.Enabled = !busy && canStartCompose;
+        _downButton.Enabled = !busy && canStopOrRefreshServices;
+        _refreshServicesButton.Enabled = !busy && canStopOrRefreshServices;
+        _fetchTagsButton.Enabled = !busy && repoReady && !_anyServiceRunning;
+        _checkoutButton.Enabled = !busy && repoReady && !_anyServiceRunning;
     }
 
     private async Task<CommandResult> RunCommandAsync(string fileName, IReadOnlyList<string> args, string workingDirectory)
@@ -717,6 +728,11 @@ public partial class Form1 : Form
     private static string GetJsonString(JsonElement element, string name)
     {
         return element.TryGetProperty(name, out var value) ? value.ToString() : "";
+    }
+
+    private static bool IsRunningState(string state)
+    {
+        return string.Equals(state, "running", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FormatPorts(JsonElement service)
