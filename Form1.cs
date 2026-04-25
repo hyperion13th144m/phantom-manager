@@ -1,10 +1,5 @@
-using System.ComponentModel;
 using System.Diagnostics;
-using System.Net;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace PhantomManager;
@@ -46,10 +41,6 @@ public partial class Form1 : Form
     private string ReleaseDir => _releasePathBox.Text.Trim();
     private string EnvPath => Path.Combine(ReleaseDir, ".env");
     private string EnvSamplePath => Path.Combine(ReleaseDir, "env.sample");
-    private static string DefaultSrcDir => Path.Combine(AppContext.BaseDirectory, "インターネット出願ソフトのデータ");
-    private static string LogDir => Path.Combine(AppContext.BaseDirectory, "log");
-    private static string BatDir => Path.Combine(AppContext.BaseDirectory, "bat");
-    private static string MirrorBatPath => Path.Combine(BatDir, "mirror.bat");
 
     private void BuildUi()
     {
@@ -102,7 +93,7 @@ public partial class Form1 : Form
             Padding = new Padding(0, 0, 24, 0),
         };
 
-        _releasePathBox.Text = Path.Combine(AppContext.BaseDirectory, "phantom-release");
+        _releasePathBox.Text = AppPaths.DefaultReleaseDir;
         _releasePathBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
 
         var browseButton = NewButton("参照");
@@ -125,7 +116,7 @@ public partial class Form1 : Form
         _cloneButton.AutoSize = true;
         _cloneButton.Click += async (_, _) => await RunBusyAsync(async () =>
         {
-            await RunCommandAsync("git", new[] { "clone", "https://github.com/hyperion13th144m/phantom-release", ReleaseDir }, AppContext.BaseDirectory);
+            await CommandRunner.RunAsync("git", new[] { "clone", "https://github.com/hyperion13th144m/phantom-release", ReleaseDir }, AppContext.BaseDirectory, AppendLog);
             await RefreshAllAsync();
         });
 
@@ -199,7 +190,7 @@ public partial class Form1 : Form
         panel.Controls.Add(body);
 
         _srcDirBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-        _srcDirBox.Text = DefaultSrcDir;
+        _srcDirBox.Text = AppPaths.DefaultSrcDir;
         var chooseButton = NewButton("選択");
         chooseButton.Click += (_, _) =>
         {
@@ -246,7 +237,7 @@ public partial class Form1 : Form
         _createMirrorBatchButton.Click += async (_, _) => await RunBusyAsync(async () =>
         {
             CreateMirrorBatch();
-            AppendLog($"ミラーバッチを作成しました: {MirrorBatPath}");
+            AppendLog($"ミラーバッチを作成しました: {AppPaths.MirrorBatPath}");
             await Task.CompletedTask;
         });
 
@@ -333,12 +324,12 @@ public partial class Form1 : Form
         _serviceUrlLink.LinkClicked += (_, _) => OpenServiceUrl();
         _upButton.Click += async (_, _) => await RunBusyAsync(async () =>
         {
-            await RunCommandAsync("docker", new[] { "compose", "up", "-d" }, ReleaseDir);
+            await DockerCompose().UpAsync(AppendLog);
             await RefreshServicesAsync();
         });
         _downButton.Click += async (_, _) => await RunBusyAsync(async () =>
         {
-            await RunCommandAsync("docker", new[] { "compose", "down" }, ReleaseDir);
+            await DockerCompose().DownAsync(AppendLog);
             await RefreshServicesAsync();
         });
         _refreshServicesButton.Click += async (_, _) => await RunBusyAsync(RefreshServicesAsync);
@@ -395,18 +386,18 @@ public partial class Form1 : Form
     {
         var dockerDesktopPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Docker", "Docker", "Docker Desktop.exe");
         var hasDockerDesktop = File.Exists(dockerDesktopPath);
-        var dockerVersion = await TryRunCommandAsync("docker", new[] { "--version" }, ReleaseDir, log: false);
-        var dockerInfo = await TryRunCommandAsync("docker", new[] { "info", "--format", "{{.ServerVersion}}" }, ReleaseDir, log: false);
+        var dockerVersion = await CommandRunner.TryRunAsync("docker", new[] { "--version" }, ReleaseDir);
+        var dockerInfo = await CommandRunner.TryRunAsync("docker", new[] { "info", "--format", "{{.ServerVersion}}" }, ReleaseDir);
         _dockerStatus.Text = hasDockerDesktop
             ? $"○ Docker Desktop for Windows: インストール済み / {(dockerInfo.ExitCode == 0 ? "起動中" : "未起動")} ({dockerVersion.Output.Trim()})"
             : "× Docker Desktop for Windows: 未検出";
 
-        var gitVersion = await TryRunCommandAsync("git", new[] { "--version" }, ReleaseDir, log: false);
+        var gitVersion = await CommandRunner.TryRunAsync("git", new[] { "--version" }, ReleaseDir);
         _gitStatus.Text = gitVersion.ExitCode == 0
             ? $"○ Git for Windows: インストール済み ({gitVersion.Output.Trim()})"
             : "× Git for Windows: 未検出";
 
-        _repoStatus.Text = IsReleaseRepoReady()
+        _repoStatus.Text = ReleaseRepository().IsReady()
             ? $"○ phantom-release: 検出済み ({ReleaseDir})"
             : $"× phantom-release: 未検出 ({ReleaseDir})";
         _cloneButton.Enabled = !Directory.Exists(ReleaseDir);
@@ -431,7 +422,7 @@ public partial class Form1 : Form
     {
         try
         {
-            Directory.CreateDirectory(DefaultSrcDir);
+            Directory.CreateDirectory(AppPaths.DefaultSrcDir);
         }
         catch (Exception ex)
         {
@@ -443,7 +434,7 @@ public partial class Form1 : Form
     {
         try
         {
-            Directory.CreateDirectory(LogDir);
+            Directory.CreateDirectory(AppPaths.LogDir);
         }
         catch (Exception ex)
         {
@@ -455,18 +446,13 @@ public partial class Form1 : Form
 
     private async Task FetchTagsAsync(bool runFetch)
     {
-        if (!IsReleaseRepoReady())
+        var repository = ReleaseRepository();
+        if (!repository.IsReady())
         {
             return;
         }
 
-        if (runFetch)
-        {
-            await RunCommandAsync("git", new[] { "fetch", "--tags", "--prune" }, ReleaseDir);
-        }
-
-        var result = await RunCommandAsync("git", new[] { "tag", "--list", "--sort=-v:refname" }, ReleaseDir);
-        var tags = result.Output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        var tags = await repository.GetTagsAsync(runFetch, AppendLog);
         _tagBox.Items.Clear();
         _tagBox.Items.AddRange(tags);
         if (_tagBox.Items.Count > 0)
@@ -483,7 +469,7 @@ public partial class Form1 : Form
             return;
         }
 
-        await RunCommandAsync("git", new[] { "checkout", tag }, ReleaseDir);
+        await ReleaseRepository().CheckoutTagAsync(tag, AppendLog);
         UpdateCheckoutStatus();
         await RefreshServicesAsync();
     }
@@ -492,14 +478,7 @@ public partial class Form1 : Form
     {
         _serviceList.Items.Clear();
         _anyServiceRunning = false;
-        if (!IsReleaseRepoReady())
-        {
-            UpdateServiceUrlLink();
-            return;
-        }
-
-        var result = await TryRunCommandAsync("docker", new[] { "compose", "ps", "--all", "--format", "json" }, ReleaseDir);
-        if (result.ExitCode != 0)
+        if (!ReleaseRepository().IsReady())
         {
             UpdateServiceUrlLink();
             return;
@@ -507,29 +486,23 @@ public partial class Form1 : Form
 
         try
         {
-            foreach (var line in result.Output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            foreach (var service in await DockerCompose().GetServicesAsync(AppendLog))
             {
-                using var document = JsonDocument.Parse(line);
-                var service = document.RootElement;
-                var item = new ListViewItem(GetJsonString(service, "Service"));
-                var state = GetJsonString(service, "State");
-                item.SubItems.Add(state);
-                item.SubItems.Add(GetJsonString(service, "Status"));
-                item.SubItems.Add(FormatPorts(service));
+                var item = new ListViewItem(service.Name);
+                item.SubItems.Add(service.State);
+                item.SubItems.Add(service.Status);
+                item.SubItems.Add(service.Ports);
                 _serviceList.Items.Add(item);
-                if (IsRunningState(state))
+                if (service.IsRunning)
                 {
                     _anyServiceRunning = true;
                 }
             }
             UpdateServiceUrlLink();
         }
-        catch (JsonException)
+        catch (Exception ex)
         {
-            foreach (var line in result.Output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                _serviceList.Items.Add(new ListViewItem(new[] { line, "", "", "" }));
-            }
+            AppendLog(ex.Message);
             UpdateServiceUrlLink();
         }
     }
@@ -590,125 +563,27 @@ public partial class Form1 : Form
             throw new DirectoryNotFoundException($"データディレクトリが存在しません: {dataDir}");
         }
 
-        EnsureLogDir();
-        Directory.CreateDirectory(BatDir);
-        var mirrorLogPath = Path.Combine(LogDir, "mirror.log");
-        var batch = string.Join(Environment.NewLine, new[]
-        {
-            "@echo off",
-            "chcp 65001 >nul",
-            $"set \"ORIG={origDir}\"",
-            $"set \"DATA_DIR={dataDir}\"",
-            $"robocopy \"%ORIG%\" \"%DATA_DIR%\" /MIR /S /M /R:3 /W:10 /NP /NDL /LOG:\"{mirrorLogPath}\"",
-            "exit /b %ERRORLEVEL%",
-            "",
-        });
-        File.WriteAllText(MirrorBatPath, batch, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        MirrorBatchWriter.Create(origDir, dataDir);
     }
 
-    private bool IsReleaseRepoReady()
+    private GitRepository ReleaseRepository()
     {
-        return Directory.Exists(ReleaseDir)
-            && Directory.Exists(Path.Combine(ReleaseDir, ".git"))
-            && File.Exists(Path.Combine(ReleaseDir, "docker-compose.yml"));
+        return new GitRepository(ReleaseDir);
+    }
+
+    private DockerComposeClient DockerCompose()
+    {
+        return new DockerComposeClient(ReleaseDir);
     }
 
     private bool IsTagCheckedOut()
     {
-        return GetCheckedOutTag() is not null;
-    }
-
-    private string? GetCheckedOutTag()
-    {
-        if (!IsReleaseRepoReady())
-        {
-            return null;
-        }
-
-        var isDetached = RunGitQuiet(new[] { "symbolic-ref", "-q", "HEAD" }) != 0;
-        if (!isDetached)
-        {
-            return null;
-        }
-
-        var tag = RunGitCapture(new[] { "describe", "--exact-match", "--tags", "HEAD" });
-        return string.IsNullOrWhiteSpace(tag) ? null : tag.Trim();
-    }
-
-    private int RunGitQuiet(IReadOnlyList<string> args)
-    {
-        try
-        {
-            var startInfo = new ProcessStartInfo("git")
-            {
-                WorkingDirectory = ReleaseDir,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8,
-            };
-            foreach (var arg in args)
-            {
-                startInfo.ArgumentList.Add(arg);
-            }
-
-            using var process = Process.Start(startInfo);
-            if (process is null)
-            {
-                return -1;
-            }
-            if (!process.WaitForExit(3000))
-            {
-                process.Kill();
-                return -1;
-            }
-            return process.ExitCode;
-        }
-        catch
-        {
-            return -1;
-        }
-    }
-
-    private string? RunGitCapture(IReadOnlyList<string> args)
-    {
-        try
-        {
-            var startInfo = new ProcessStartInfo("git")
-            {
-                WorkingDirectory = ReleaseDir,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8,
-            };
-            foreach (var arg in args)
-            {
-                startInfo.ArgumentList.Add(arg);
-            }
-
-            using var process = Process.Start(startInfo);
-            if (process is null)
-            {
-                return null;
-            }
-            var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(3000);
-            return process.ExitCode == 0 ? output : null;
-        }
-        catch
-        {
-            return null;
-        }
+        return ReleaseRepository().GetCheckedOutTag() is not null;
     }
 
     private void UpdateCheckoutStatus()
     {
-        var tag = GetCheckedOutTag();
+        var tag = ReleaseRepository().GetCheckedOutTag();
         _checkoutStatus.Text = tag is null
             ? "チェックアウトされていません。バージョンを選んで「チェックアウトしてください」"
             : $"現在のバージョン: {tag}";
@@ -735,7 +610,7 @@ public partial class Form1 : Form
     private void SetBusy(bool busy)
     {
         Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
-        var repoReady = IsReleaseRepoReady();
+        var repoReady = ReleaseRepository().IsReady();
         var canStartCompose = repoReady && File.Exists(EnvPath) && IsTagCheckedOut() && !_anyServiceRunning;
         var canStopOrRefreshServices = repoReady && _anyServiceRunning;
         UpdateCheckoutStatus();
@@ -750,80 +625,6 @@ public partial class Form1 : Form
         _refreshServicesButton.Enabled = !busy && canStopOrRefreshServices;
         _fetchTagsButton.Enabled = !busy && repoReady && !_anyServiceRunning;
         _checkoutButton.Enabled = !busy && repoReady && !_anyServiceRunning;
-    }
-
-    private async Task<CommandResult> RunCommandAsync(string fileName, IReadOnlyList<string> args, string workingDirectory)
-    {
-        var result = await TryRunCommandAsync(fileName, args, workingDirectory);
-        if (result.ExitCode != 0)
-        {
-            throw new InvalidOperationException($"{fileName} {string.Join(" ", args)} failed: exit code {result.ExitCode}");
-        }
-        return result;
-    }
-
-    private async Task<CommandResult> TryRunCommandAsync(string fileName, IReadOnlyList<string> args, string workingDirectory, bool log = true)
-    {
-        var output = new StringBuilder();
-        var psi = new ProcessStartInfo(fileName)
-        {
-            WorkingDirectory = Directory.Exists(workingDirectory) ? workingDirectory : AppContext.BaseDirectory,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-        foreach (var arg in args)
-        {
-            psi.ArgumentList.Add(arg);
-        }
-
-        if (log)
-        {
-            AppendLog($"> {fileName} {string.Join(" ", args)}");
-        }
-
-        try
-        {
-            using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-            process.OutputDataReceived += (_, e) =>
-            {
-                if (e.Data is not null)
-                {
-                    output.AppendLine(e.Data);
-                    if (log)
-                    {
-                        BeginInvoke(() => AppendLog(e.Data));
-                    }
-                }
-            };
-            process.ErrorDataReceived += (_, e) =>
-            {
-                if (e.Data is not null)
-                {
-                    output.AppendLine(e.Data);
-                    if (log)
-                    {
-                        BeginInvoke(() => AppendLog(e.Data));
-                    }
-                }
-            };
-            process.Start();
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-            await process.WaitForExitAsync();
-            return new CommandResult(process.ExitCode, output.ToString());
-        }
-        catch (Win32Exception ex)
-        {
-            if (log)
-            {
-                AppendLog(ex.Message);
-            }
-            return new CommandResult(9009, ex.Message);
-        }
     }
 
     private void AppendLog(string message)
@@ -845,7 +646,7 @@ public partial class Form1 : Form
             return;
         }
 
-        var ipAddress = GetPreferredLocalIPv4Address();
+        var ipAddress = NetworkAddressProvider.GetPreferredLocalIPv4Address();
         if (ipAddress is null)
         {
             _serviceUrlLink.Visible = true;
@@ -879,74 +680,6 @@ public partial class Form1 : Form
         }
     }
 
-    private static string? GetPreferredLocalIPv4Address()
-    {
-        var interfaces = NetworkInterface.GetAllNetworkInterfaces()
-            .Where(networkInterface =>
-                networkInterface.OperationalStatus == OperationalStatus.Up
-                && !networkInterface.Name.Contains("vEthernet", StringComparison.OrdinalIgnoreCase)
-                && !networkInterface.Description.Contains("Hyper-V", StringComparison.OrdinalIgnoreCase)
-                && (networkInterface.NetworkInterfaceType == NetworkInterfaceType.Ethernet
-                    || networkInterface.NetworkInterfaceType == NetworkInterfaceType.Wireless80211))
-            .OrderBy(networkInterface => networkInterface.NetworkInterfaceType == NetworkInterfaceType.Ethernet ? 0 : 1);
-
-        foreach (var networkInterface in interfaces)
-        {
-            var address = networkInterface.GetIPProperties().UnicastAddresses
-                .FirstOrDefault(unicast =>
-                    unicast.Address.AddressFamily == AddressFamily.InterNetwork
-                    && !IPAddress.IsLoopback(unicast.Address)
-                    && !unicast.Address.ToString().StartsWith("169.254.", StringComparison.Ordinal));
-            if (address is not null)
-            {
-                return address.Address.ToString();
-            }
-        }
-
-        return null;
-    }
-
-    private static string GetJsonString(JsonElement element, string name)
-    {
-        return element.TryGetProperty(name, out var value) ? value.ToString() : "";
-    }
-
-    private static bool IsRunningState(string state)
-    {
-        return string.Equals(state, "running", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string FormatPorts(JsonElement service)
-    {
-        var ports = GetJsonString(service, "Ports");
-        return string.IsNullOrWhiteSpace(ports) ? FormatPublishers(service) : ports;
-    }
-
-    private static string FormatPublishers(JsonElement service)
-    {
-        if (!service.TryGetProperty("Publishers", out var publishers) || publishers.ValueKind != JsonValueKind.Array)
-        {
-            return "";
-        }
-
-        var parts = new List<string>();
-        foreach (var publisher in publishers.EnumerateArray())
-        {
-            var target = GetJsonString(publisher, "TargetPort");
-            var published = GetJsonString(publisher, "PublishedPort");
-            var protocol = GetJsonString(publisher, "Protocol");
-            if (!string.IsNullOrWhiteSpace(published))
-            {
-                parts.Add($"{published}->{target}/{protocol}");
-            }
-            else if (!string.IsNullOrWhiteSpace(target))
-            {
-                parts.Add($"{target}/{protocol}");
-            }
-        }
-        return string.Join(", ", parts);
-    }
-
     private static Button NewButton(string text) => new()
     {
         Text = text,
@@ -977,6 +710,4 @@ public partial class Form1 : Form
         label.MaximumSize = new Size(360, 0);
         label.Margin = new Padding(0, 2, 0, 2);
     }
-
-    private sealed record CommandResult(int ExitCode, string Output);
 }
