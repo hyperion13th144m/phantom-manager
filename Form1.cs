@@ -26,6 +26,7 @@ public partial class Form1 : Form
     private readonly Button _selectOrigButton = new();
     private readonly Button _createMirrorBatchButton = new();
     private readonly Button _refreshChecksButton = new();
+    private readonly Button _initializeDatabaseButton = new();
     private readonly Button _cloneButton = new();
     private bool _anyServiceRunning;
 
@@ -168,6 +169,11 @@ public partial class Form1 : Form
         _refreshChecksButton.AutoSize = true;
         _refreshChecksButton.Click += async (_, _) => await RefreshAllAsync();
         body.Controls.Add(_refreshChecksButton);
+
+        _initializeDatabaseButton.Text = "データベース初期化";
+        _initializeDatabaseButton.AutoSize = true;
+        _initializeDatabaseButton.Click += async (_, _) => await InitializeDatabaseAsync();
+        body.Controls.Add(_initializeDatabaseButton);
         return panel;
     }
 
@@ -474,6 +480,27 @@ public partial class Form1 : Form
         await RefreshServicesAsync();
     }
 
+    private async Task InitializeDatabaseAsync()
+    {
+        var result = MessageBox.Show(
+            this,
+            "Elasticsearch のインデックスを削除して作り直します。続行しますか？",
+            "データベース初期化",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2);
+        if (result != DialogResult.Yes)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await new ElasticsearchInitializer(ReleaseDir).InitializeAsync(AppendLog);
+            await RefreshServicesAsync();
+        });
+    }
+
     private async Task RefreshServicesAsync()
     {
         _serviceList.Items.Clear();
@@ -617,6 +644,7 @@ public partial class Form1 : Form
         UpdateServiceUrlLink();
         _cloneButton.Enabled = !busy && !Directory.Exists(ReleaseDir);
         _refreshChecksButton.Enabled = !busy && !_anyServiceRunning;
+        _initializeDatabaseButton.Enabled = !busy && repoReady && _anyServiceRunning;
         _saveEnvButton.Enabled = !busy && Directory.Exists(ReleaseDir) && !_anyServiceRunning;
         _selectOrigButton.Enabled = !busy && !_anyServiceRunning;
         _createMirrorBatchButton.Enabled = !busy && !_anyServiceRunning;
