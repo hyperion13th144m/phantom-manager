@@ -16,6 +16,7 @@ public partial class Form1 : Form
     private readonly Label _dockerStatus = new();
     private readonly Label _gitStatus = new();
     private readonly Label _repoStatus = new();
+    private readonly Label _checkoutStatus = new();
     private readonly Button _upButton = new();
     private readonly Button _downButton = new();
     private readonly Button _refreshServicesButton = new();
@@ -28,18 +29,20 @@ public partial class Form1 : Form
     {
         InitializeComponent();
         BuildUi();
+        EnsureDefaultSrcDir();
         Shown += async (_, _) => await RefreshAllAsync();
     }
 
     private string ReleaseDir => _releasePathBox.Text.Trim();
     private string EnvPath => Path.Combine(ReleaseDir, ".env");
     private string EnvSamplePath => Path.Combine(ReleaseDir, "env.sample");
+    private static string DefaultSrcDir => Path.Combine(AppContext.BaseDirectory, "インターネット出願ソフトのデータ");
 
     private void BuildUi()
     {
         Text = "phantom-manager";
-        MinimumSize = new Size(1040, 720);
-        Size = new Size(1180, 760);
+        MinimumSize = new Size(1040, 980);
+        Size = new Size(1180, 1040);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Yu Gothic UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
 
@@ -126,8 +129,8 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Top,
             AutoSize = false,
-            Height = 165,
-            MinimumSize = new Size(0, 165),
+            Height = 250,
+            MinimumSize = new Size(0, 250),
             ColumnCount = 3,
             Padding = new Padding(0, 0, 0, 10),
         };
@@ -147,7 +150,10 @@ public partial class Form1 : Form
         var body = NewVertical();
         panel.Controls.Add(body);
 
-        _dockerStatus.Text = "Docker Desktop: 確認中";
+        ConfigureStatusLabel(_dockerStatus);
+        ConfigureStatusLabel(_gitStatus);
+        ConfigureStatusLabel(_repoStatus);
+        _dockerStatus.Text = "Docker Desktop for Windows: 確認中";
         _gitStatus.Text = "Git for Windows: 確認中";
         _repoStatus.Text = "phantom-release: 確認中";
         body.Controls.Add(_dockerStatus);
@@ -178,6 +184,7 @@ public partial class Form1 : Form
         panel.Controls.Add(body);
 
         _srcDirBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        _srcDirBox.Text = DefaultSrcDir;
         var chooseButton = NewButton("選択");
         chooseButton.Click += (_, _) =>
         {
@@ -228,6 +235,9 @@ public partial class Form1 : Form
 
         _tagBox.DropDownStyle = ComboBoxStyle.DropDownList;
         _tagBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        ConfigureStatusLabel(_checkoutStatus);
+        _checkoutStatus.MaximumSize = new Size(420, 0);
+        _checkoutStatus.Text = "チェックアウト状態: 確認中";
 
         _fetchTagsButton.Text = "fetch / タグ取得";
         _fetchTagsButton.AutoSize = true;
@@ -241,6 +251,8 @@ public partial class Form1 : Form
         body.Controls.Add(_fetchTagsButton, 1, 0);
         body.Controls.Add(_checkoutButton, 0, 1);
         body.SetColumnSpan(_checkoutButton, 2);
+        body.Controls.Add(_checkoutStatus, 0, 2);
+        body.SetColumnSpan(_checkoutStatus, 2);
         return panel;
     }
 
@@ -329,17 +341,17 @@ public partial class Form1 : Form
         var dockerVersion = await TryRunCommandAsync("docker", new[] { "--version" }, ReleaseDir, log: false);
         var dockerInfo = await TryRunCommandAsync("docker", new[] { "info", "--format", "{{.ServerVersion}}" }, ReleaseDir, log: false);
         _dockerStatus.Text = hasDockerDesktop
-            ? $"Docker Desktop: インストール済み / {(dockerInfo.ExitCode == 0 ? "起動中" : "未起動")} ({dockerVersion.Output.Trim()})"
-            : "Docker Desktop: 未検出";
+            ? $"○ Docker Desktop for Windows: インストール済み / {(dockerInfo.ExitCode == 0 ? "起動中" : "未起動")} ({dockerVersion.Output.Trim()})"
+            : "× Docker Desktop for Windows: 未検出";
 
         var gitVersion = await TryRunCommandAsync("git", new[] { "--version" }, ReleaseDir, log: false);
         _gitStatus.Text = gitVersion.ExitCode == 0
-            ? $"Git for Windows: OK ({gitVersion.Output.Trim()})"
-            : "Git for Windows: 未検出";
+            ? $"○ Git for Windows: インストール済み ({gitVersion.Output.Trim()})"
+            : "× Git for Windows: 未検出";
 
         _repoStatus.Text = IsReleaseRepoReady()
-            ? $"phantom-release: OK ({ReleaseDir})"
-            : $"phantom-release: 未検出 ({ReleaseDir})";
+            ? $"○ phantom-release: 検出済み ({ReleaseDir})"
+            : $"× phantom-release: 未検出 ({ReleaseDir})";
         _cloneButton.Enabled = !Directory.Exists(ReleaseDir);
     }
 
@@ -355,6 +367,18 @@ public partial class Form1 : Form
         if (match.Success)
         {
             _srcDirBox.Text = match.Groups[1].Value.Trim().Trim('"').Replace('/', Path.DirectorySeparatorChar);
+        }
+    }
+
+    private void EnsureDefaultSrcDir()
+    {
+        try
+        {
+            Directory.CreateDirectory(DefaultSrcDir);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"デフォルトのデータディレクトリを作成できませんでした: {ex.Message}");
         }
     }
 
@@ -391,6 +415,7 @@ public partial class Form1 : Form
         }
 
         await RunCommandAsync("git", new[] { "checkout", tag }, ReleaseDir);
+        UpdateCheckoutStatus();
         await RefreshServicesAsync();
     }
 
@@ -444,7 +469,13 @@ public partial class Form1 : Form
             throw new InvalidOperationException("データディレクトリを選択してください。");
         }
 
-        var srcDir = Path.GetFullPath(_srcDirBox.Text.Trim()).Replace('\\', '/');
+        var srcDirPath = Path.GetFullPath(_srcDirBox.Text.Trim());
+        if (!Directory.Exists(srcDirPath))
+        {
+            throw new DirectoryNotFoundException($"指定したデータディレクトリが存在しません: {srcDirPath}");
+        }
+
+        var srcDir = srcDirPath.Replace('\\', '/');
         var text = File.ReadAllText(EnvSamplePath, Encoding.UTF8);
         if (Regex.IsMatch(text, @"(?m)^SRC_DIR=.*$"))
         {
@@ -462,6 +493,107 @@ public partial class Form1 : Form
         return Directory.Exists(ReleaseDir)
             && Directory.Exists(Path.Combine(ReleaseDir, ".git"))
             && File.Exists(Path.Combine(ReleaseDir, "docker-compose.yml"));
+    }
+
+    private bool IsTagCheckedOut()
+    {
+        return GetCheckedOutTag() is not null;
+    }
+
+    private string? GetCheckedOutTag()
+    {
+        if (!IsReleaseRepoReady())
+        {
+            return null;
+        }
+
+        var isDetached = RunGitQuiet(new[] { "symbolic-ref", "-q", "HEAD" }) != 0;
+        if (!isDetached)
+        {
+            return null;
+        }
+
+        var tag = RunGitCapture(new[] { "describe", "--exact-match", "--tags", "HEAD" });
+        return string.IsNullOrWhiteSpace(tag) ? null : tag.Trim();
+    }
+
+    private int RunGitQuiet(IReadOnlyList<string> args)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo("git")
+            {
+                WorkingDirectory = ReleaseDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
+            };
+            foreach (var arg in args)
+            {
+                startInfo.ArgumentList.Add(arg);
+            }
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return -1;
+            }
+            if (!process.WaitForExit(3000))
+            {
+                process.Kill();
+                return -1;
+            }
+            return process.ExitCode;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    private string? RunGitCapture(IReadOnlyList<string> args)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo("git")
+            {
+                WorkingDirectory = ReleaseDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
+            };
+            foreach (var arg in args)
+            {
+                startInfo.ArgumentList.Add(arg);
+            }
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return null;
+            }
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(3000);
+            return process.ExitCode == 0 ? output : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void UpdateCheckoutStatus()
+    {
+        var tag = GetCheckedOutTag();
+        _checkoutStatus.Text = tag is null
+            ? "チェックアウトされていません。バージョンを選んで「チェックアウトしてください」"
+            : $"現在のバージョン: {tag}";
     }
 
     private async Task RunBusyAsync(Func<Task> action)
@@ -486,12 +618,15 @@ public partial class Form1 : Form
     {
         Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
         var repoReady = IsReleaseRepoReady();
+        var canRunCompose = repoReady && File.Exists(EnvPath) && IsTagCheckedOut();
+        UpdateCheckoutStatus();
         _cloneButton.Enabled = !busy && !Directory.Exists(ReleaseDir);
         _saveEnvButton.Enabled = !busy && Directory.Exists(ReleaseDir);
-        foreach (var button in new[] { _upButton, _downButton, _refreshServicesButton, _fetchTagsButton, _checkoutButton })
-        {
-            button.Enabled = !busy && repoReady;
-        }
+        _upButton.Enabled = !busy && canRunCompose;
+        _downButton.Enabled = !busy && canRunCompose;
+        _refreshServicesButton.Enabled = !busy && repoReady;
+        _fetchTagsButton.Enabled = !busy && repoReady;
+        _checkoutButton.Enabled = !busy && repoReady;
     }
 
     private async Task<CommandResult> RunCommandAsync(string fileName, IReadOnlyList<string> args, string workingDirectory)
@@ -621,7 +756,7 @@ public partial class Form1 : Form
         Dock = DockStyle.Fill,
         Padding = new Padding(10),
         Margin = new Padding(0, 0, 10, 10),
-        MinimumSize = new Size(0, 145),
+        MinimumSize = new Size(0, 310),
     };
 
     private static FlowLayoutPanel NewVertical() => new()
@@ -631,6 +766,13 @@ public partial class Form1 : Form
         WrapContents = false,
         AutoScroll = true,
     };
+
+    private static void ConfigureStatusLabel(Label label)
+    {
+        label.AutoSize = true;
+        label.MaximumSize = new Size(360, 0);
+        label.Margin = new Padding(0, 2, 0, 2);
+    }
 
     private sealed record CommandResult(int ExitCode, string Output);
 }
