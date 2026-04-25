@@ -1,5 +1,8 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -10,6 +13,7 @@ public partial class Form1 : Form
 {
     private readonly TextBox _releasePathBox = new();
     private readonly TextBox _srcDirBox = new();
+    private readonly TextBox _origDirBox = new();
     private readonly TextBox _logBox = new();
     private readonly ComboBox _tagBox = new();
     private readonly ListView _serviceList = new();
@@ -17,12 +21,15 @@ public partial class Form1 : Form
     private readonly Label _gitStatus = new();
     private readonly Label _repoStatus = new();
     private readonly Label _checkoutStatus = new();
+    private readonly LinkLabel _serviceUrlLink = new();
     private readonly Button _upButton = new();
     private readonly Button _downButton = new();
     private readonly Button _refreshServicesButton = new();
     private readonly Button _fetchTagsButton = new();
     private readonly Button _checkoutButton = new();
     private readonly Button _saveEnvButton = new();
+    private readonly Button _selectOrigButton = new();
+    private readonly Button _createMirrorBatchButton = new();
     private readonly Button _refreshChecksButton = new();
     private readonly Button _cloneButton = new();
     private bool _anyServiceRunning;
@@ -32,6 +39,7 @@ public partial class Form1 : Form
         InitializeComponent();
         BuildUi();
         EnsureDefaultSrcDir();
+        EnsureLogDir();
         Shown += async (_, _) => await RefreshAllAsync();
     }
 
@@ -39,6 +47,9 @@ public partial class Form1 : Form
     private string EnvPath => Path.Combine(ReleaseDir, ".env");
     private string EnvSamplePath => Path.Combine(ReleaseDir, "env.sample");
     private static string DefaultSrcDir => Path.Combine(AppContext.BaseDirectory, "インターネット出願ソフトのデータ");
+    private static string LogDir => Path.Combine(AppContext.BaseDirectory, "log");
+    private static string BatDir => Path.Combine(AppContext.BaseDirectory, "bat");
+    private static string MirrorBatPath => Path.Combine(BatDir, "mirror.bat");
 
     private void BuildUi()
     {
@@ -131,8 +142,8 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Top,
             AutoSize = false,
-            Height = 250,
-            MinimumSize = new Size(0, 250),
+            Height = 330,
+            MinimumSize = new Size(0, 330),
             ColumnCount = 3,
             Padding = new Padding(0, 0, 0, 10),
         };
@@ -176,9 +187,10 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            RowCount = 3,
+            RowCount = 4,
             ColumnCount = 2,
         };
+        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -203,6 +215,23 @@ public partial class Form1 : Form
             }
         };
 
+        _origDirBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        _selectOrigButton.Text = "元データ選択";
+        _selectOrigButton.AutoSize = true;
+        _selectOrigButton.Click += (_, _) =>
+        {
+            using var dialog = new FolderBrowserDialog
+            {
+                Description = "ミラー元のデータディレクトリを選択してください",
+                SelectedPath = Directory.Exists(_origDirBox.Text) ? _origDirBox.Text : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                UseDescriptionForTitle = true,
+            };
+            if (dialog.ShowDialog(this) == DialogResult.OK)
+            {
+                _origDirBox.Text = dialog.SelectedPath;
+            }
+        };
+
         _saveEnvButton.Text = ".env 保存";
         _saveEnvButton.AutoSize = true;
         _saveEnvButton.Click += async (_, _) => await RunBusyAsync(async () =>
@@ -212,10 +241,31 @@ public partial class Form1 : Form
             await Task.CompletedTask;
         });
 
+        _createMirrorBatchButton.Text = "ミラーバッチ作成";
+        _createMirrorBatchButton.AutoSize = true;
+        _createMirrorBatchButton.Click += async (_, _) => await RunBusyAsync(async () =>
+        {
+            CreateMirrorBatch();
+            AppendLog($"ミラーバッチを作成しました: {MirrorBatPath}");
+            await Task.CompletedTask;
+        });
+
+        var actionButtons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            Margin = new Padding(0),
+        };
+        actionButtons.Controls.AddRange(new Control[] { _saveEnvButton, _createMirrorBatchButton });
+
         body.Controls.Add(_srcDirBox, 0, 0);
         body.Controls.Add(chooseButton, 1, 0);
-        body.Controls.Add(_saveEnvButton, 0, 1);
-        body.SetColumnSpan(_saveEnvButton, 2);
+        body.Controls.Add(_origDirBox, 0, 1);
+        body.Controls.Add(_selectOrigButton, 1, 1);
+        body.Controls.Add(actionButtons, 0, 2);
+        body.SetColumnSpan(actionButtons, 2);
         return panel;
     }
 
@@ -277,6 +327,10 @@ public partial class Form1 : Form
         _downButton.Text = "停止";
         _refreshServicesButton.Text = "状態更新";
         _upButton.AutoSize = _downButton.AutoSize = _refreshServicesButton.AutoSize = true;
+        _serviceUrlLink.AutoSize = true;
+        _serviceUrlLink.Visible = false;
+        _serviceUrlLink.Margin = new Padding(16, 8, 4, 4);
+        _serviceUrlLink.LinkClicked += (_, _) => OpenServiceUrl();
         _upButton.Click += async (_, _) => await RunBusyAsync(async () =>
         {
             await RunCommandAsync("docker", new[] { "compose", "up", "-d" }, ReleaseDir);
@@ -288,7 +342,7 @@ public partial class Form1 : Form
             await RefreshServicesAsync();
         });
         _refreshServicesButton.Click += async (_, _) => await RunBusyAsync(RefreshServicesAsync);
-        buttons.Controls.AddRange(new Control[] { _upButton, _downButton, _refreshServicesButton });
+        buttons.Controls.AddRange(new Control[] { _upButton, _downButton, _refreshServicesButton, _serviceUrlLink });
 
         _serviceList.Dock = DockStyle.Fill;
         _serviceList.View = View.Details;
@@ -385,6 +439,18 @@ public partial class Form1 : Form
         }
     }
 
+    private void EnsureLogDir()
+    {
+        try
+        {
+            Directory.CreateDirectory(LogDir);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ログディレクトリを作成できませんでした: {ex.Message}");
+        }
+    }
+
     private async Task FetchTagsAsync() => await FetchTagsAsync(runFetch: true);
 
     private async Task FetchTagsAsync(bool runFetch)
@@ -428,12 +494,14 @@ public partial class Form1 : Form
         _anyServiceRunning = false;
         if (!IsReleaseRepoReady())
         {
+            UpdateServiceUrlLink();
             return;
         }
 
         var result = await TryRunCommandAsync("docker", new[] { "compose", "ps", "--all", "--format", "json" }, ReleaseDir);
         if (result.ExitCode != 0)
         {
+            UpdateServiceUrlLink();
             return;
         }
 
@@ -454,6 +522,7 @@ public partial class Form1 : Form
                     _anyServiceRunning = true;
                 }
             }
+            UpdateServiceUrlLink();
         }
         catch (JsonException)
         {
@@ -461,6 +530,7 @@ public partial class Form1 : Form
             {
                 _serviceList.Items.Add(new ListViewItem(new[] { line, "", "", "" }));
             }
+            UpdateServiceUrlLink();
         }
     }
 
@@ -496,6 +566,44 @@ public partial class Form1 : Form
             text = $"SRC_DIR={srcDir}{Environment.NewLine}{text}";
         }
         File.WriteAllText(EnvPath, text, new UTF8Encoding(false));
+    }
+
+    private void CreateMirrorBatch()
+    {
+        if (string.IsNullOrWhiteSpace(_origDirBox.Text))
+        {
+            throw new InvalidOperationException("元データディレクトリを選択してください。");
+        }
+        if (string.IsNullOrWhiteSpace(_srcDirBox.Text))
+        {
+            throw new InvalidOperationException("データディレクトリを選択してください。");
+        }
+
+        var origDir = Path.GetFullPath(_origDirBox.Text.Trim());
+        var dataDir = Path.GetFullPath(_srcDirBox.Text.Trim());
+        if (!Directory.Exists(origDir))
+        {
+            throw new DirectoryNotFoundException($"元データディレクトリが存在しません: {origDir}");
+        }
+        if (!Directory.Exists(dataDir))
+        {
+            throw new DirectoryNotFoundException($"データディレクトリが存在しません: {dataDir}");
+        }
+
+        EnsureLogDir();
+        Directory.CreateDirectory(BatDir);
+        var mirrorLogPath = Path.Combine(LogDir, "mirror.log");
+        var batch = string.Join(Environment.NewLine, new[]
+        {
+            "@echo off",
+            "chcp 65001 >nul",
+            $"set \"ORIG={origDir}\"",
+            $"set \"DATA_DIR={dataDir}\"",
+            $"robocopy \"%ORIG%\" \"%DATA_DIR%\" /MIR /S /M /R:3 /W:10 /NP /NDL /LOG:\"{mirrorLogPath}\"",
+            "exit /b %ERRORLEVEL%",
+            "",
+        });
+        File.WriteAllText(MirrorBatPath, batch, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
     }
 
     private bool IsReleaseRepoReady()
@@ -631,9 +739,12 @@ public partial class Form1 : Form
         var canStartCompose = repoReady && File.Exists(EnvPath) && IsTagCheckedOut() && !_anyServiceRunning;
         var canStopOrRefreshServices = repoReady && _anyServiceRunning;
         UpdateCheckoutStatus();
+        UpdateServiceUrlLink();
         _cloneButton.Enabled = !busy && !Directory.Exists(ReleaseDir);
         _refreshChecksButton.Enabled = !busy && !_anyServiceRunning;
         _saveEnvButton.Enabled = !busy && Directory.Exists(ReleaseDir) && !_anyServiceRunning;
+        _selectOrigButton.Enabled = !busy && !_anyServiceRunning;
+        _createMirrorBatchButton.Enabled = !busy && !_anyServiceRunning;
         _upButton.Enabled = !busy && canStartCompose;
         _downButton.Enabled = !busy && canStopOrRefreshServices;
         _refreshServicesButton.Enabled = !busy && canStopOrRefreshServices;
@@ -723,6 +834,76 @@ public partial class Form1 : Form
             return;
         }
         _logBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+    }
+
+    private void UpdateServiceUrlLink()
+    {
+        if (!_anyServiceRunning)
+        {
+            _serviceUrlLink.Visible = false;
+            _serviceUrlLink.Text = "";
+            return;
+        }
+
+        var ipAddress = GetPreferredLocalIPv4Address();
+        if (ipAddress is null)
+        {
+            _serviceUrlLink.Visible = true;
+            _serviceUrlLink.Text = "IP アドレスを取得できません";
+            _serviceUrlLink.Links.Clear();
+            return;
+        }
+
+        var url = $"http://{ipAddress}:8080/";
+        _serviceUrlLink.Visible = true;
+        _serviceUrlLink.Text = url;
+        _serviceUrlLink.Links.Clear();
+        _serviceUrlLink.Links.Add(0, url.Length, url);
+    }
+
+    private void OpenServiceUrl()
+    {
+        if (_serviceUrlLink.Links.Count == 0 || _serviceUrlLink.Links[0].LinkData is not string url)
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"リンクを開けませんでした: {ex.Message}");
+            MessageBox.Show(this, ex.Message, "phantom-manager", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static string? GetPreferredLocalIPv4Address()
+    {
+        var interfaces = NetworkInterface.GetAllNetworkInterfaces()
+            .Where(networkInterface =>
+                networkInterface.OperationalStatus == OperationalStatus.Up
+                && !networkInterface.Name.Contains("vEthernet", StringComparison.OrdinalIgnoreCase)
+                && !networkInterface.Description.Contains("Hyper-V", StringComparison.OrdinalIgnoreCase)
+                && (networkInterface.NetworkInterfaceType == NetworkInterfaceType.Ethernet
+                    || networkInterface.NetworkInterfaceType == NetworkInterfaceType.Wireless80211))
+            .OrderBy(networkInterface => networkInterface.NetworkInterfaceType == NetworkInterfaceType.Ethernet ? 0 : 1);
+
+        foreach (var networkInterface in interfaces)
+        {
+            var address = networkInterface.GetIPProperties().UnicastAddresses
+                .FirstOrDefault(unicast =>
+                    unicast.Address.AddressFamily == AddressFamily.InterNetwork
+                    && !IPAddress.IsLoopback(unicast.Address)
+                    && !unicast.Address.ToString().StartsWith("169.254.", StringComparison.Ordinal));
+            if (address is not null)
+            {
+                return address.Address.ToString();
+            }
+        }
+
+        return null;
     }
 
     private static string GetJsonString(JsonElement element, string name)
