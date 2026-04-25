@@ -16,7 +16,7 @@ internal static class MirrorBatchWriter
             "chcp 65001 >nul",
             $"set \"ORIG={origDir}\"",
             $"set \"DATA_DIR={dataDir}\"",
-            $"robocopy \"%ORIG%\" \"%DATA_DIR%\" /MIR /S /M /R:3 /W:10 /NP /NDL /LOG:\"{mirrorLogPath}\"",
+            $"robocopy \"%ORIG%\" \"%DATA_DIR%\" /E /LOG:\"{mirrorLogPath}\"",
             "exit /b %ERRORLEVEL%",
             "",
         });
