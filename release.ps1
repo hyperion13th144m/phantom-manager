@@ -18,11 +18,11 @@ Push-Location $ProjectDir
 try {
     $status = git status --short
     if ($status) {
-        throw "作業ツリーに未コミットの変更があります。先に commit してください。"
+        throw "Working tree is not clean. Commit changes before releasing."
     }
 
     if (git tag --list $Version) {
-        throw "タグ $Version は既に存在します。"
+        throw "Tag $Version already exists."
     }
 
     New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
