@@ -119,6 +119,7 @@ public partial class Form1 : Form
         {
             await CommandRunner.RunAsync("git", new[] { "clone", "https://github.com/hyperion13th144m/phantom-release", ReleaseDir }, AppContext.BaseDirectory, AppendLog);
             await RefreshAllAsync();
+            EnsureDataDir();
         });
 
         panel.Controls.Add(title, 0, 0);
@@ -395,7 +396,7 @@ public partial class Form1 : Form
         var dockerVersion = await CommandRunner.TryRunAsync("docker", new[] { "--version" }, ReleaseDir);
         var dockerInfo = await CommandRunner.TryRunAsync("docker", new[] { "info", "--format", "{{.ServerVersion}}" }, ReleaseDir);
         _dockerStatus.Text = hasDockerDesktop
-            ? $"○ Docker Desktop for Windows: インストール済み / {(dockerInfo.ExitCode == 0 ? "起動中" : "未起動")} ({dockerVersion.Output.Trim()})"
+            ? $"○ Docker Desktop for Windows: インストール済み / {(dockerInfo.ExitCode == 0 ? "○ 起動中" : "× 未起動")} ({dockerVersion.Output.Trim()})"
             : "× Docker Desktop for Windows: 未検出";
 
         var gitVersion = await CommandRunner.TryRunAsync("git", new[] { "--version" }, ReleaseDir);
@@ -445,6 +446,37 @@ public partial class Form1 : Form
         catch (Exception ex)
         {
             AppendLog($"ログディレクトリを作成できませんでした: {ex.Message}");
+        }
+    }
+
+    private void EnsureDataDir()
+    {
+        try
+        {
+            var directories = new[]
+            {
+                @"var\data",
+                @"var\extra-data",
+                @"var\log\crow\api",
+                @"var\log\crow\jobs",
+                @"var\log\crow\crawling",
+                @"var\log\fox",
+                @"var\log\joker",
+                @"var\log\mona",
+                @"var\log\navi",
+                @"var\log\panther",
+                @"var\log\skull",
+                @"var\log\violet",
+            };
+
+            foreach (var relativePath in directories)
+            {
+                Directory.CreateDirectory(Path.Combine(ReleaseDir, relativePath));
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"データディレクトリを作成できませんでした: {ex.Message}");
         }
     }
 
