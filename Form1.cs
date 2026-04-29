@@ -1,47 +1,50 @@
 using System.Diagnostics;
-using System.Text;
-using System.Text.RegularExpressions;
-
 namespace PhantomManager;
 
 public partial class Form1 : Form
 {
+    private const string FixedEnvSrcDir = "./var/internet-app-data";
     private readonly TextBox _releasePathBox = new();
-    private readonly TextBox _srcDirBox = new();
     private readonly TextBox _origDirBox = new();
     private readonly TextBox _logBox = new();
     private readonly ComboBox _tagBox = new();
     private readonly ListView _serviceList = new();
     private readonly Label _dockerStatus = new();
     private readonly Label _gitStatus = new();
+    private readonly Label _wslStatus = new();
     private readonly Label _repoStatus = new();
     private readonly Label _checkoutStatus = new();
     private readonly LinkLabel _serviceUrlLink = new();
     private readonly Button _upButton = new();
     private readonly Button _downButton = new();
     private readonly Button _refreshServicesButton = new();
+    private readonly Button _createSslCertificateButton = new();
+    private readonly Button _downloadCaCertificateButton = new();
+    private readonly CheckBox _sslCheckBox = new();
     private readonly Button _fetchTagsButton = new();
     private readonly Button _checkoutButton = new();
     private readonly Button _saveEnvButton = new();
     private readonly Button _selectOrigButton = new();
     private readonly Button _createMirrorBatchButton = new();
+    private readonly Button _openDataDirButton = new();
     private readonly Button _refreshChecksButton = new();
     private readonly Button _initializeDatabaseButton = new();
     private readonly Button _cloneButton = new();
+    private readonly Button _installUbuntuButton = new();
     private bool _anyServiceRunning;
+    private bool _ubuntuInstalled;
 
     public Form1()
     {
         InitializeComponent();
         BuildUi();
-        EnsureDefaultSrcDir();
         EnsureLogDir();
         Shown += async (_, _) => await RefreshAllAsync();
     }
 
     private string ReleaseDir => _releasePathBox.Text.Trim();
-    private string EnvPath => Path.Combine(ReleaseDir, ".env");
-    private string EnvSamplePath => Path.Combine(ReleaseDir, "env.sample");
+    private string EnvPath => $"{ReleaseDir.TrimEnd('/', '\\')}/.env";
+    private string EnvSamplePath => $"{ReleaseDir.TrimEnd('/', '\\')}/env.sample";
 
     private void BuildUi()
     {
@@ -78,12 +81,9 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            ColumnCount = 4,
+            ColumnCount = 1,
             Padding = new Padding(0, 0, 0, 10),
         };
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         var title = new Label
@@ -94,38 +94,7 @@ public partial class Form1 : Form
             Padding = new Padding(0, 0, 24, 0),
         };
 
-        _releasePathBox.Text = AppPaths.DefaultReleaseDir;
-        _releasePathBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-
-        var browseButton = NewButton("参照");
-        browseButton.Click += (_, _) =>
-        {
-            using var dialog = new FolderBrowserDialog
-            {
-                Description = "phantom-release ディレクトリを選択してください",
-                SelectedPath = Directory.Exists(ReleaseDir) ? ReleaseDir : AppContext.BaseDirectory,
-                UseDescriptionForTitle = true,
-            };
-            if (dialog.ShowDialog(this) == DialogResult.OK)
-            {
-                _releasePathBox.Text = dialog.SelectedPath;
-                _ = RefreshAllAsync();
-            }
-        };
-
-        _cloneButton.Text = "clone";
-        _cloneButton.AutoSize = true;
-        _cloneButton.Click += async (_, _) => await RunBusyAsync(async () =>
-        {
-            await CommandRunner.RunAsync("git", new[] { "clone", "https://github.com/hyperion13th144m/phantom-release", ReleaseDir }, AppContext.BaseDirectory, AppendLog);
-            await RefreshAllAsync();
-            EnsureDataDir();
-        });
-
         panel.Controls.Add(title, 0, 0);
-        panel.Controls.Add(_releasePathBox, 1, 0);
-        panel.Controls.Add(browseButton, 2, 0);
-        panel.Controls.Add(_cloneButton, 3, 0);
         return panel;
     }
 
@@ -135,8 +104,8 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Top,
             AutoSize = false,
-            Height = 330,
-            MinimumSize = new Size(0, 330),
+            Height = 360,
+            MinimumSize = new Size(0, 360),
             ColumnCount = 3,
             Padding = new Padding(0, 0, 0, 10),
         };
@@ -145,8 +114,8 @@ public partial class Form1 : Form
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
 
         grid.Controls.Add(BuildStatusPanel(), 0, 0);
-        grid.Controls.Add(BuildEnvironmentPanel(), 1, 0);
-        grid.Controls.Add(BuildVersionPanel(), 2, 0);
+        grid.Controls.Add(BuildVersionPanel(), 1, 0);
+        grid.Controls.Add(BuildEnvironmentPanel(), 2, 0);
         return grid;
     }
 
@@ -158,18 +127,26 @@ public partial class Form1 : Form
 
         ConfigureStatusLabel(_dockerStatus);
         ConfigureStatusLabel(_gitStatus);
+        ConfigureStatusLabel(_wslStatus);
         ConfigureStatusLabel(_repoStatus);
         _dockerStatus.Text = "Docker Desktop for Windows: 確認中";
         _gitStatus.Text = "Git for Windows: 確認中";
+        _wslStatus.Text = "WSL Ubuntu-20.04: 確認中";
         _repoStatus.Text = "phantom-release: 確認中";
         body.Controls.Add(_dockerStatus);
         body.Controls.Add(_gitStatus);
+        body.Controls.Add(_wslStatus);
         body.Controls.Add(_repoStatus);
 
         _refreshChecksButton.Text = "再チェック";
         _refreshChecksButton.AutoSize = true;
         _refreshChecksButton.Click += async (_, _) => await RefreshAllAsync();
         body.Controls.Add(_refreshChecksButton);
+
+        _installUbuntuButton.Text = "Ubuntu-20.04 インストール";
+        _installUbuntuButton.AutoSize = true;
+        _installUbuntuButton.Click += async (_, _) => await InstallUbuntuAsync();
+        body.Controls.Add(_installUbuntuButton);
 
         _initializeDatabaseButton.Text = "データベース初期化";
         _initializeDatabaseButton.AutoSize = true;
@@ -185,9 +162,11 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            RowCount = 4,
+            RowCount = 6,
             ColumnCount = 2,
         };
+        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -195,23 +174,6 @@ public partial class Form1 : Form
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         body.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         panel.Controls.Add(body);
-
-        _srcDirBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-        _srcDirBox.Text = AppPaths.DefaultSrcDir;
-        var chooseButton = NewButton("選択");
-        chooseButton.Click += (_, _) =>
-        {
-            using var dialog = new FolderBrowserDialog
-            {
-                Description = "インターネット出願ソフト等からコピーしたデータの保存ディレクトリを選択してください",
-                SelectedPath = Directory.Exists(_srcDirBox.Text) ? _srcDirBox.Text : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                UseDescriptionForTitle = true,
-            };
-            if (dialog.ShowDialog(this) == DialogResult.OK)
-            {
-                _srcDirBox.Text = dialog.SelectedPath;
-            }
-        };
 
         _origDirBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
         _selectOrigButton.Text = "元データ選択";
@@ -234,36 +196,34 @@ public partial class Form1 : Form
         _saveEnvButton.AutoSize = true;
         _saveEnvButton.Click += async (_, _) => await RunBusyAsync(async () =>
         {
-            SaveEnv();
+            await SaveEnvAsync();
             AppendLog($".env を保存しました: {EnvPath}");
-            await Task.CompletedTask;
         });
 
         _createMirrorBatchButton.Text = "ミラーバッチ作成";
         _createMirrorBatchButton.AutoSize = true;
         _createMirrorBatchButton.Click += async (_, _) => await RunBusyAsync(async () =>
         {
-            CreateMirrorBatch();
+            await CreateMirrorBatchAsync();
             AppendLog($"ミラーバッチを作成しました: {AppPaths.MirrorBatPath}");
-            await Task.CompletedTask;
         });
 
-        var actionButtons = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
-            Margin = new Padding(0),
-        };
-        actionButtons.Controls.AddRange(new Control[] { _saveEnvButton, _createMirrorBatchButton });
+        _openDataDirButton.Text = "データフォルダを開く";
+        _openDataDirButton.AutoSize = true;
+        _openDataDirButton.Click += async (_, _) => await RunBusyAsync(OpenDataDirAsync);
 
-        body.Controls.Add(_srcDirBox, 0, 0);
-        body.Controls.Add(chooseButton, 1, 0);
-        body.Controls.Add(_origDirBox, 0, 1);
-        body.Controls.Add(_selectOrigButton, 1, 1);
-        body.Controls.Add(actionButtons, 0, 2);
-        body.SetColumnSpan(actionButtons, 2);
+        body.Controls.Add(_saveEnvButton, 0, 0);
+        body.SetColumnSpan(_saveEnvButton, 2);
+        body.Controls.Add(NewSpacer(10), 0, 1);
+        body.SetColumnSpan(body.GetControlFromPosition(0, 1)!, 2);
+        body.Controls.Add(_origDirBox, 0, 2);
+        body.Controls.Add(_selectOrigButton, 1, 2);
+        body.Controls.Add(_createMirrorBatchButton, 0, 3);
+        body.SetColumnSpan(_createMirrorBatchButton, 2);
+        body.Controls.Add(NewSpacer(10), 0, 4);
+        body.SetColumnSpan(body.GetControlFromPosition(0, 4)!, 2);
+        body.Controls.Add(_openDataDirButton, 0, 5);
+        body.SetColumnSpan(_openDataDirButton, 2);
         return panel;
     }
 
@@ -274,15 +234,36 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            RowCount = 3,
+            RowCount = 6,
             ColumnCount = 2,
         };
+        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         body.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         panel.Controls.Add(body);
+
+        _releasePathBox.Text = AppPaths.DefaultReleaseDir;
+        _releasePathBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        var defaultPathButton = NewButton("既定値");
+        defaultPathButton.Click += (_, _) =>
+        {
+            _releasePathBox.Text = AppPaths.DefaultReleaseDir;
+            _ = RefreshAllAsync();
+        };
+
+        _cloneButton.Text = "clone";
+        _cloneButton.AutoSize = true;
+        _cloneButton.Click += async (_, _) => await RunBusyAsync(async () =>
+        {
+            await ReleaseRepository().CloneAsync("https://github.com/hyperion13th144m/phantom-release", AppendLog);
+            await RefreshAllAsync();
+            await EnsureDataDirAsync();
+        });
 
         _tagBox.DropDownStyle = ComboBoxStyle.DropDownList;
         _tagBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
@@ -298,11 +279,17 @@ public partial class Form1 : Form
         _checkoutButton.AutoSize = true;
         _checkoutButton.Click += async (_, _) => await RunBusyAsync(CheckoutSelectedTagAsync);
 
-        body.Controls.Add(_tagBox, 0, 0);
-        body.Controls.Add(_fetchTagsButton, 1, 0);
-        body.Controls.Add(_checkoutButton, 0, 1);
+        body.Controls.Add(_releasePathBox, 0, 0);
+        body.Controls.Add(defaultPathButton, 1, 0);
+        body.Controls.Add(_cloneButton, 0, 1);
+        body.SetColumnSpan(_cloneButton, 2);
+        body.Controls.Add(NewSeparator(), 0, 2);
+        body.SetColumnSpan(body.GetControlFromPosition(0, 2)!, 2);
+        body.Controls.Add(_tagBox, 0, 3);
+        body.Controls.Add(_fetchTagsButton, 1, 3);
+        body.Controls.Add(_checkoutButton, 0, 4);
         body.SetColumnSpan(_checkoutButton, 2);
-        body.Controls.Add(_checkoutStatus, 0, 2);
+        body.Controls.Add(_checkoutStatus, 0, 5);
         body.SetColumnSpan(_checkoutStatus, 2);
         return panel;
     }
@@ -326,12 +313,19 @@ public partial class Form1 : Form
         _refreshServicesButton.Text = "状態更新";
         _upButton.AutoSize = _downButton.AutoSize = _refreshServicesButton.AutoSize = true;
         _serviceUrlLink.AutoSize = true;
+        _sslCheckBox.Text = "SSL";
+        _sslCheckBox.AutoSize = true;
+        _sslCheckBox.Margin = new Padding(8, 8, 4, 4);
+        _createSslCertificateButton.Text = "SSL\u8a3c\u660e\u66f8\u4f5c\u6210";
+        _createSslCertificateButton.AutoSize = true;
+        _downloadCaCertificateButton.Text = "CA\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9";
+        _downloadCaCertificateButton.AutoSize = true;
         _serviceUrlLink.Visible = false;
         _serviceUrlLink.Margin = new Padding(16, 8, 4, 4);
         _serviceUrlLink.LinkClicked += (_, _) => OpenServiceUrl();
         _upButton.Click += async (_, _) => await RunBusyAsync(async () =>
         {
-            await DockerCompose().UpAsync(AppendLog);
+            await DockerCompose().UpAsync(AppendLog, _sslCheckBox.Checked);
             await RefreshServicesAsync();
         });
         _downButton.Click += async (_, _) => await RunBusyAsync(async () =>
@@ -340,7 +334,9 @@ public partial class Form1 : Form
             await RefreshServicesAsync();
         });
         _refreshServicesButton.Click += async (_, _) => await RunBusyAsync(RefreshServicesAsync);
-        buttons.Controls.AddRange(new Control[] { _upButton, _downButton, _refreshServicesButton, _serviceUrlLink });
+        _createSslCertificateButton.Click += async (_, _) => await RunBusyAsync(CreateSslCertificateAsync);
+        _downloadCaCertificateButton.Click += async (_, _) => await RunBusyAsync(DownloadCaCertificateAsync);
+        buttons.Controls.AddRange(new Control[] { _upButton, _sslCheckBox, _downButton, _refreshServicesButton, _createSslCertificateButton, _downloadCaCertificateButton, _serviceUrlLink });
 
         _serviceList.Dock = DockStyle.Fill;
         _serviceList.View = View.Details;
@@ -393,48 +389,49 @@ public partial class Form1 : Form
     {
         var dockerDesktopPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Docker", "Docker", "Docker Desktop.exe");
         var hasDockerDesktop = File.Exists(dockerDesktopPath);
-        var dockerVersion = await CommandRunner.TryRunAsync("docker", new[] { "--version" }, ReleaseDir);
-        var dockerInfo = await CommandRunner.TryRunAsync("docker", new[] { "info", "--format", "{{.ServerVersion}}" }, ReleaseDir);
+        var dockerVersion = await CommandRunner.TryRunAsync(DockerCli.WindowsDockerPath, new[] { "--version" }, ReleaseDir);
+        var dockerInfo = await CommandRunner.TryRunAsync(DockerCli.WindowsDockerPath, new[] { "info", "--format", "{{.ServerVersion}}" }, ReleaseDir);
         _dockerStatus.Text = hasDockerDesktop
             ? $"○ Docker Desktop for Windows: インストール済み / {(dockerInfo.ExitCode == 0 ? "○ 起動中" : "× 未起動")} ({dockerVersion.Output.Trim()})"
             : "× Docker Desktop for Windows: 未検出";
 
-        var gitVersion = await CommandRunner.TryRunAsync("git", new[] { "--version" }, ReleaseDir);
+        var wslStatus = await new WslEnvironment().GetStatusAsync(AppendLog);
+        _ubuntuInstalled = wslStatus.UbuntuInstalled;
+        var gitVersion = wslStatus.UbuntuInstalled
+            ? await WslCommand.TryBashAsync("git --version")
+            : new CommandResult(1, "");
         _gitStatus.Text = gitVersion.ExitCode == 0
-            ? $"○ Git for Windows: インストール済み ({gitVersion.Output.Trim()})"
-            : "× Git for Windows: 未検出";
+            ? $"○ Git in {WslEnvironment.UbuntuDistro}: インストール済み ({gitVersion.Output.Trim()})"
+            : $"× Git in {WslEnvironment.UbuntuDistro}: 未検出";
+
+        if (!wslStatus.WslInstalled)
+        {
+            _wslStatus.Text = "× WSL: 未検出";
+        }
+        else if (!string.IsNullOrWhiteSpace(wslStatus.Error))
+        {
+            _wslStatus.Text = $"× WSL: distribution 確認失敗 ({wslStatus.Error})";
+        }
+        else if (wslStatus.UbuntuInstalled)
+        {
+            var distributions = string.IsNullOrWhiteSpace(wslStatus.Distributions) ? WslEnvironment.UbuntuDistro : wslStatus.Distributions;
+            _wslStatus.Text = $"○ WSL {WslEnvironment.UbuntuDistro}: インストール済み ({distributions})";
+        }
+        else
+        {
+            var distributions = string.IsNullOrWhiteSpace(wslStatus.Distributions) ? "なし" : wslStatus.Distributions;
+            _wslStatus.Text = $"× WSL {WslEnvironment.UbuntuDistro}: 未インストール (現在: {distributions})";
+        }
 
         _repoStatus.Text = ReleaseRepository().IsReady()
             ? $"○ phantom-release: 検出済み ({ReleaseDir})"
             : $"× phantom-release: 未検出 ({ReleaseDir})";
-        _cloneButton.Enabled = !Directory.Exists(ReleaseDir);
+        _cloneButton.Enabled = !ReleaseRepository().DirectoryExists();
     }
 
     private void LoadExistingEnv()
     {
-        if (!File.Exists(EnvPath))
-        {
-            return;
-        }
-
-        var text = File.ReadAllText(EnvPath, Encoding.UTF8);
-        var match = Regex.Match(text, @"(?m)^SRC_DIR=(.*)$");
-        if (match.Success)
-        {
-            _srcDirBox.Text = match.Groups[1].Value.Trim().Trim('"').Replace('/', Path.DirectorySeparatorChar);
-        }
-    }
-
-    private void EnsureDefaultSrcDir()
-    {
-        try
-        {
-            Directory.CreateDirectory(AppPaths.DefaultSrcDir);
-        }
-        catch (Exception ex)
-        {
-            AppendLog($"デフォルトのデータディレクトリを作成できませんでした: {ex.Message}");
-        }
+        // .env SRC_DIR is fixed for the WSL runtime. Keep the Windows mirror target UI unchanged.
     }
 
     private void EnsureLogDir()
@@ -449,13 +446,14 @@ public partial class Form1 : Form
         }
     }
 
-    private void EnsureDataDir()
+    private async Task EnsureDataDirAsync()
     {
         try
         {
             var directories = new[]
             {
                 @"var\data",
+                @"var\internet-app-data",
                 @"var\extra-data",
                 @"var\log\crow\api",
                 @"var\log\crow\jobs",
@@ -469,10 +467,10 @@ public partial class Form1 : Form
                 @"var\log\violet",
             };
 
-            foreach (var relativePath in directories)
-            {
-                Directory.CreateDirectory(Path.Combine(ReleaseDir, relativePath));
-            }
+            var paths = directories
+                .Select(relativePath => $"{WslCommand.PathArg(ReleaseDir)}/{relativePath.Replace('\\', '/')}")
+                .ToArray();
+            await WslCommand.RunBashAsync($"mkdir -p {string.Join(" ", paths)}", AppendLog);
         }
         catch (Exception ex)
         {
@@ -512,6 +510,27 @@ public partial class Form1 : Form
         await RefreshServicesAsync();
     }
 
+    private async Task InstallUbuntuAsync()
+    {
+        var result = MessageBox.Show(
+            this,
+            $"{WslEnvironment.UbuntuDistro} を WSL にインストールします。Windows の設定や再起動、Ubuntu の初期ユーザー作成が必要になる場合があります。続行しますか?",
+            "WSL Ubuntu install",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Information,
+            MessageBoxDefaultButton.Button2);
+        if (result != DialogResult.Yes)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await new WslEnvironment().InstallUbuntuAsync(AppendLog);
+            await RefreshChecksAsync();
+        });
+    }
+
     private async Task InitializeDatabaseAsync()
     {
         var result = MessageBox.Show(
@@ -531,6 +550,56 @@ public partial class Form1 : Form
             await new ElasticsearchInitializer(ReleaseDir).InitializeAsync(AppendLog);
             await RefreshServicesAsync();
         });
+    }
+
+    private async Task CreateSslCertificateAsync()
+    {
+        if (!ReleaseRepository().IsReady())
+        {
+            throw new DirectoryNotFoundException($"phantom-release 縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ: {ReleaseDir}");
+        }
+
+        var ipAddress = NetworkAddressProvider.GetPreferredLocalIPv4Address();
+        if (ipAddress is null)
+        {
+            throw new InvalidOperationException("IP \u30a2\u30c9\u30ec\u30b9\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093");
+        }
+
+        AppendLog($"SSL certificate IP address: {ipAddress}");
+        await new NginxSslCertificateGenerator(ReleaseDir).CreateAsync(ipAddress, AppendLog);
+        AppendLog("SSL certificate files created: secrets/nginx/ca, secrets/nginx/tls");
+    }
+
+    private async Task DownloadCaCertificateAsync()
+    {
+        if (!ReleaseRepository().IsReady())
+        {
+            throw new DirectoryNotFoundException($"phantom-release 縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ: {ReleaseDir}");
+        }
+
+        using var dialog = new SaveFileDialog
+        {
+            Title = "CA certificate save",
+            FileName = "phantom-local-ca.crt",
+            Filter = "Certificate files (*.crt)|*.crt|All files (*.*)|*.*",
+            AddExtension = true,
+            DefaultExt = "crt",
+            OverwritePrompt = true,
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        var caPath = $"{WslCommand.PathArg(ReleaseDir)}/secrets/nginx/ca/phantom-local-ca.crt";
+        var certificate = WslCommand.CaptureBashQuiet($"cat {caPath}");
+        if (string.IsNullOrWhiteSpace(certificate))
+        {
+            throw new FileNotFoundException("CA certificate was not found. Create SSL certificates first.", "secrets/nginx/ca/phantom-local-ca.crt");
+        }
+
+        await File.WriteAllTextAsync(dialog.FileName, certificate);
+        AppendLog($"CA certificate saved: {dialog.FileName}");
     }
 
     private async Task RefreshServicesAsync()
@@ -566,63 +635,78 @@ public partial class Form1 : Form
         }
     }
 
-    private void SaveEnv()
+    private async Task SaveEnvAsync()
     {
-        if (!Directory.Exists(ReleaseDir))
+        if (!ReleaseRepository().IsReady())
         {
             throw new DirectoryNotFoundException($"phantom-release が見つかりません: {ReleaseDir}");
         }
-        if (!File.Exists(EnvSamplePath))
+
+        if (WslCommand.RunBashQuiet($"test -f {WslCommand.PathArg(EnvSamplePath)}") != 0)
         {
             throw new FileNotFoundException("env.sample が見つかりません。", EnvSamplePath);
         }
-        if (string.IsNullOrWhiteSpace(_srcDirBox.Text))
-        {
-            throw new InvalidOperationException("データディレクトリを選択してください。");
-        }
 
-        var srcDirPath = Path.GetFullPath(_srcDirBox.Text.Trim());
-        if (!Directory.Exists(srcDirPath))
-        {
-            throw new DirectoryNotFoundException($"指定したデータディレクトリが存在しません: {srcDirPath}");
-        }
-
-        var srcDir = srcDirPath.Replace('\\', '/');
-        var text = File.ReadAllText(EnvSamplePath, Encoding.UTF8);
-        if (Regex.IsMatch(text, @"(?m)^SRC_DIR=.*$"))
-        {
-            text = Regex.Replace(text, @"(?m)^SRC_DIR=.*$", $"SRC_DIR={srcDir}");
-        }
-        else
-        {
-            text = $"SRC_DIR={srcDir}{Environment.NewLine}{text}";
-        }
-        File.WriteAllText(EnvPath, text, new UTF8Encoding(false));
+        var releaseDir = WslCommand.PathArg(ReleaseDir);
+        var srcDir = WslCommand.Quote(FixedEnvSrcDir);
+        await WslCommand.RunBashAsync(
+            $"cd {releaseDir} && cp env.sample .env && " +
+            $"if grep -q '^SRC_DIR=' .env; then sed -i 's#^SRC_DIR=.*#SRC_DIR={FixedEnvSrcDir}#' .env; else printf '\\nSRC_DIR=%s\\n' {srcDir} >> .env; fi && " +
+            $"mkdir -p {WslCommand.PathArg(ReleaseDir)}/var/internet-app-data",
+            AppendLog);
     }
 
-    private void CreateMirrorBatch()
+    private async Task CreateMirrorBatchAsync()
     {
         if (string.IsNullOrWhiteSpace(_origDirBox.Text))
         {
             throw new InvalidOperationException("元データディレクトリを選択してください。");
         }
-        if (string.IsNullOrWhiteSpace(_srcDirBox.Text))
-        {
-            throw new InvalidOperationException("データディレクトリを選択してください。");
-        }
-
         var origDir = Path.GetFullPath(_origDirBox.Text.Trim());
-        var dataDir = Path.GetFullPath(_srcDirBox.Text.Trim());
         if (!Directory.Exists(origDir))
         {
             throw new DirectoryNotFoundException($"元データディレクトリが存在しません: {origDir}");
         }
-        if (!Directory.Exists(dataDir))
+
+        var dataDir = await GetMirrorDataDirAsync();
+        MirrorBatchWriter.Create(origDir, dataDir);
+    }
+
+    private async Task OpenDataDirAsync()
+    {
+        var dataDir = await GetMirrorDataDirAsync();
+        Process.Start(new ProcessStartInfo("explorer.exe", dataDir)
         {
-            throw new DirectoryNotFoundException($"データディレクトリが存在しません: {dataDir}");
+            UseShellExecute = true,
+        });
+    }
+
+    private async Task<string> GetMirrorDataDirAsync()
+    {
+        if (!ReleaseRepository().IsReady())
+        {
+            throw new DirectoryNotFoundException($"phantom-release が見つかりません: {ReleaseDir}");
         }
 
-        MirrorBatchWriter.Create(origDir, dataDir);
+        var releaseDir = WslCommand.PathArg(ReleaseDir);
+        var result = await WslCommand.RunBashAsync(
+            $"mkdir -p {releaseDir}/var/internet-app-data && cd {releaseDir} && pwd -P",
+            AppendLog);
+        var linuxReleaseDir = result.Output
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .LastOrDefault();
+        if (string.IsNullOrWhiteSpace(linuxReleaseDir))
+        {
+            throw new InvalidOperationException("WSL 上の phantom-release ディレクトリを解決できませんでした。");
+        }
+
+        return ToWslUncPath(WslEnvironment.UbuntuDistro, $"{linuxReleaseDir.TrimEnd('/')}/var/internet-app-data");
+    }
+
+    private static string ToWslUncPath(string distribution, string linuxPath)
+    {
+        var relativePath = linuxPath.Trim().TrimStart('/').Replace('/', '\\');
+        return $@"\\wsl.localhost\{distribution}\{relativePath}";
     }
 
     private GitRepository ReleaseRepository()
@@ -638,6 +722,11 @@ public partial class Form1 : Form
     private bool IsTagCheckedOut()
     {
         return ReleaseRepository().GetCheckedOutTag() is not null;
+    }
+
+    private bool EnvExists()
+    {
+        return WslCommand.RunBashQuiet($"test -f {WslCommand.PathArg(EnvPath)}") == 0;
     }
 
     private void UpdateCheckoutStatus()
@@ -670,19 +759,24 @@ public partial class Form1 : Form
     {
         Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
         var repoReady = ReleaseRepository().IsReady();
-        var canStartCompose = repoReady && File.Exists(EnvPath) && IsTagCheckedOut() && !_anyServiceRunning;
+        var canStartCompose = repoReady && EnvExists() && IsTagCheckedOut() && !_anyServiceRunning;
         var canStopOrRefreshServices = repoReady && _anyServiceRunning;
         UpdateCheckoutStatus();
         UpdateServiceUrlLink();
-        _cloneButton.Enabled = !busy && !Directory.Exists(ReleaseDir);
+        _cloneButton.Enabled = !busy && !ReleaseRepository().DirectoryExists();
         _refreshChecksButton.Enabled = !busy && !_anyServiceRunning;
+        _installUbuntuButton.Enabled = !busy && !_anyServiceRunning && !_ubuntuInstalled;
         _initializeDatabaseButton.Enabled = !busy && repoReady && _anyServiceRunning;
-        _saveEnvButton.Enabled = !busy && Directory.Exists(ReleaseDir) && !_anyServiceRunning;
+        _saveEnvButton.Enabled = !busy && repoReady && !_anyServiceRunning;
         _selectOrigButton.Enabled = !busy && !_anyServiceRunning;
         _createMirrorBatchButton.Enabled = !busy && !_anyServiceRunning;
+        _openDataDirButton.Enabled = !busy && repoReady;
         _upButton.Enabled = !busy && canStartCompose;
+        _sslCheckBox.Enabled = !busy && !_anyServiceRunning;
         _downButton.Enabled = !busy && canStopOrRefreshServices;
         _refreshServicesButton.Enabled = !busy && canStopOrRefreshServices;
+        _createSslCertificateButton.Enabled = !busy && repoReady && !_anyServiceRunning;
+        _downloadCaCertificateButton.Enabled = !busy && repoReady;
         _fetchTagsButton.Enabled = !busy && repoReady && !_anyServiceRunning;
         _checkoutButton.Enabled = !busy && repoReady && !_anyServiceRunning;
     }
@@ -715,7 +809,8 @@ public partial class Form1 : Form
             return;
         }
 
-        var url = $"http://{ipAddress}:8080/";
+        var protocol = _sslCheckBox.Checked ? "https" : "http";
+        var url = $"{protocol}://{ipAddress}:8080/";
         _serviceUrlLink.Visible = true;
         _serviceUrlLink.Text = url;
         _serviceUrlLink.Links.Clear();
@@ -745,6 +840,21 @@ public partial class Form1 : Form
         Text = text,
         AutoSize = true,
         Margin = new Padding(4),
+    };
+
+    private static Panel NewSpacer(int height) => new()
+    {
+        Height = height,
+        Dock = DockStyle.Top,
+        Margin = new Padding(0),
+    };
+
+    private static Panel NewSeparator() => new()
+    {
+        Height = 18,
+        Dock = DockStyle.Top,
+        Margin = new Padding(0, 8, 0, 8),
+        BorderStyle = BorderStyle.Fixed3D,
     };
 
     private static GroupBox NewGroup(string text) => new()

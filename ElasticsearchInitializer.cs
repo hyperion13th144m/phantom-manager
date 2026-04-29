@@ -17,10 +17,8 @@ internal sealed class ElasticsearchInitializer
         await WaitForElasticsearchAsync(log);
 
         log?.Invoke("Elasticsearch 初期化スクリプトを実行しています...");
-        await CommandRunner.RunAsync(
-            "docker",
-            new[] { "compose", "exec", "-T", ServiceName, "/init.sh", "-f" },
-            _releaseDir,
+        await WslCommand.RunBashAsync(
+            $"cd {WslCommand.PathArg(_releaseDir)} && {DockerCli.WslDockerArg} compose exec {ServiceName} /init.sh -f",
             log);
 
         log?.Invoke("データベース初期化が完了しました。");
@@ -31,10 +29,8 @@ internal sealed class ElasticsearchInitializer
         var startedAt = DateTimeOffset.UtcNow;
         while (DateTimeOffset.UtcNow - startedAt < TimeSpan.FromSeconds(60))
         {
-            var result = await CommandRunner.TryRunAsync(
-                "docker",
-                new[] { "compose", "exec", "-T", ServiceName, "curl", "-fsS", $"{EsUrl}/_cluster/health?wait_for_status=yellow&timeout=1s" },
-                _releaseDir);
+            var result = await WslCommand.TryBashAsync(
+                $"cd {WslCommand.PathArg(_releaseDir)} && {DockerCli.WslDockerArg} compose exec -T {ServiceName} curl -fsS {WslCommand.Quote($"{EsUrl}/_cluster/health?wait_for_status=yellow&timeout=1s")}");
             if (result.ExitCode == 0)
             {
                 return;

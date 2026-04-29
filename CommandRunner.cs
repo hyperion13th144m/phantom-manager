@@ -92,7 +92,7 @@ internal static class CommandRunner
                 return -1;
             }
 
-            if (!process.WaitForExit(3000))
+            if (!process.WaitForExit(10000))
             {
                 process.Kill();
                 return -1;
@@ -117,7 +117,11 @@ internal static class CommandRunner
             }
 
             var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(3000);
+            if (!process.WaitForExit(10000))
+            {
+                process.Kill();
+                return null;
+            }
             return process.ExitCode == 0 ? output : null;
         }
         catch

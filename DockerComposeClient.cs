@@ -11,22 +11,21 @@ internal sealed class DockerComposeClient
         _workingDirectory = workingDirectory;
     }
 
-    public async Task UpAsync(Action<string>? log)
+    public async Task UpAsync(Action<string>? log, bool useSsl = false)
     {
-        await CommandRunner.RunAsync("docker", new[] { "compose", "up", "-d" }, _workingDirectory, log);
+        var files = useSsl ? "-f docker-compose.yml -f docker-compose.secure.yml " : "";
+        await WslCommand.RunBashAsync($"cd {WslCommand.PathArg(_workingDirectory)} && {DockerCli.WslDockerArg} compose {files}up -d", log);
     }
 
     public async Task DownAsync(Action<string>? log)
     {
-        await CommandRunner.RunAsync("docker", new[] { "compose", "down" }, _workingDirectory, log);
+        await WslCommand.RunBashAsync($"cd {WslCommand.PathArg(_workingDirectory)} && {DockerCli.WslDockerArg} compose down", log);
     }
 
     public async Task<IReadOnlyList<ComposeService>> GetServicesAsync(Action<string>? log)
     {
-        var result = await CommandRunner.TryRunAsync(
-            "docker",
-            new[] { "compose", "ps", "--all", "--format", "json" },
-            _workingDirectory,
+        var result = await WslCommand.TryBashAsync(
+            $"cd {WslCommand.PathArg(_workingDirectory)} && {DockerCli.WslDockerArg} compose ps --all --format json",
             log);
         if (result.ExitCode != 0)
         {
