@@ -16,7 +16,7 @@ internal static class MirrorBatchWriter
             "@echo off",
             $"set \"ORIG={sourceDir}\"",
             $"set \"DATA_DIR={destinationDir}\"",
-            $"robocopy \"%ORIG%\" \"%DATA_DIR%\" \"*AAA.JWX\" \"*AAA.JPC\" \"*NNF.JWX\" \"*NNF.JPC\" /E /LOG:\"{mirrorLogPath}\" /TEE",
+            $"robocopy \"%ORIG%\" \"%DATA_DIR%\" \"*AAA.JWX\" \"*AAA.JPC\" \"*NNF.JWX\" \"*NNF.JPC\" \"*AFM.XML\" \"*NFM.XML\" /E /LOG:\"{mirrorLogPath}\" /TEE",
             "exit /b %ERRORLEVEL%",
             "",
         });
