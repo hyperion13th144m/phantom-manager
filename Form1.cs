@@ -72,7 +72,6 @@ public partial class Form1 : Form
         root.Controls.Add(BuildActions(), 0, 1);
         root.Controls.Add(BuildServices(), 0, 2);
         root.Controls.Add(BuildLog(), 0, 3);
-        root.Controls.Add(BuildFooter(), 0, 4);
     }
 
     private Control BuildHeader()
@@ -316,9 +315,9 @@ public partial class Form1 : Form
         _sslCheckBox.Text = "SSL";
         _sslCheckBox.AutoSize = true;
         _sslCheckBox.Margin = new Padding(8, 8, 4, 4);
-        _createSslCertificateButton.Text = "SSL\u8a3c\u660e\u66f8\u4f5c\u6210";
+        _createSslCertificateButton.Text = "SSL証明書作成";
         _createSslCertificateButton.AutoSize = true;
-        _downloadCaCertificateButton.Text = "CA\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9";
+        _downloadCaCertificateButton.Text = "CAダウンロード";
         _downloadCaCertificateButton.AutoSize = true;
         _serviceUrlLink.Visible = false;
         _serviceUrlLink.Margin = new Padding(16, 8, 4, 4);
@@ -361,17 +360,6 @@ public partial class Form1 : Form
         _logBox.WordWrap = false;
         panel.Controls.Add(_logBox);
         return panel;
-    }
-
-    private Control BuildFooter()
-    {
-        var label = new Label
-        {
-            AutoSize = true,
-            ForeColor = SystemColors.GrayText,
-            Text = "想定配置: app\\phantom-manager.exe と app\\phantom-release",
-        };
-        return label;
     }
 
     private async Task RefreshAllAsync()
@@ -452,23 +440,23 @@ public partial class Form1 : Form
         {
             var directories = new[]
             {
-                @"var\data",
-                @"var\internet-app-data",
-                @"var\extra-data",
-                @"var\log\crow\api",
-                @"var\log\crow\jobs",
-                @"var\log\crow\crawling",
-                @"var\log\fox",
-                @"var\log\joker",
-                @"var\log\mona",
-                @"var\log\navi",
-                @"var\log\panther",
-                @"var\log\skull",
-                @"var\log\violet",
+                @"var/data",
+                @"var/internet-app-data",
+                @"var/extra-data",
+                @"var/log/crow/api",
+                @"var/log/crow/jobs",
+                @"var/log/crow/crawling",
+                @"var/log/fox",
+                @"var/log/joker",
+                @"var/log/mona",
+                @"var/log/navi",
+                @"var/log/panther",
+                @"var/log/skull",
+                @"var/log/violet",
             };
 
             var paths = directories
-                .Select(relativePath => $"{WslCommand.PathArg(ReleaseDir)}/{relativePath.Replace('\\', '/')}")
+                .Select(relativePath => $"{WslCommand.PathArg(ReleaseDir)}/{relativePath}")
                 .ToArray();
             await WslCommand.RunBashAsync($"mkdir -p {string.Join(" ", paths)}", AppendLog);
         }
@@ -556,13 +544,13 @@ public partial class Form1 : Form
     {
         if (!ReleaseRepository().IsReady())
         {
-            throw new DirectoryNotFoundException($"phantom-release 縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ: {ReleaseDir}");
+            throw new DirectoryNotFoundException($"phantom-release が見つかりません: {ReleaseDir}");
         }
 
         var ipAddress = NetworkAddressProvider.GetPreferredLocalIPv4Address();
         if (ipAddress is null)
         {
-            throw new InvalidOperationException("IP \u30a2\u30c9\u30ec\u30b9\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093");
+            throw new InvalidOperationException("IP アドレスを取得できません");
         }
 
         AppendLog($"SSL certificate IP address: {ipAddress}");
@@ -574,7 +562,7 @@ public partial class Form1 : Form
     {
         if (!ReleaseRepository().IsReady())
         {
-            throw new DirectoryNotFoundException($"phantom-release 縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ: {ReleaseDir}");
+            throw new DirectoryNotFoundException($"phantom-release が見つかりません: {ReleaseDir}");
         }
 
         using var dialog = new SaveFileDialog

@@ -14,15 +14,16 @@ internal static class MirrorBatchWriter
         var batch = string.Join(Environment.NewLine, new[]
         {
             "@echo off",
-            "chcp 65001 >nul",
             $"set \"ORIG={sourceDir}\"",
             $"set \"DATA_DIR={destinationDir}\"",
-            $"robocopy \"%ORIG%\" \"%DATA_DIR%\" /E /LOG:\"{mirrorLogPath}\"",
+            $"robocopy \"%ORIG%\" \"%DATA_DIR%\" \"*AAA.JWX\" \"*AAA.JPC\" \"*NNF.JWX\" \"*NNF.JPC\" /E /LOG:\"{mirrorLogPath}\" /TEE",
             "exit /b %ERRORLEVEL%",
             "",
         });
 
-        File.WriteAllText(AppPaths.MirrorBatPath, batch, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        Encoding sjis = Encoding.GetEncoding("Shift_JIS");
+        File.WriteAllText(AppPaths.MirrorBatPath, batch, sjis);
     }
 
     private static string NormalizeRobocopyPath(string path)
