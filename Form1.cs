@@ -3,6 +3,7 @@ namespace PhantomManager;
 
 public partial class Form1 : Form
 {
+    private const string AppVersion = "v1.0.5";
     private const string FixedEnvSrcDir = "./var/internet-app-data";
     private readonly TextBox _releasePathBox = new();
     private readonly TextBox _origDirBox = new();
@@ -87,7 +88,7 @@ public partial class Form1 : Form
 
         var title = new Label
         {
-            Text = "phantom 全文検索システム管理",
+            Text = $"phantom 全文検索システム管理 {AppVersion}",
             Font = new Font(Font.FontFamily, 14F, FontStyle.Bold),
             AutoSize = true,
             Padding = new Padding(0, 0, 24, 0),
