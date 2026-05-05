@@ -3,7 +3,7 @@ namespace PhantomManager;
 
 public partial class Form1 : Form
 {
-    private const string AppVersion = "v1.0.5";
+    private const string AppVersion = "v1.0.6";
     private const string FixedEnvSrcDir = "./var/internet-app-data";
     private readonly TextBox _releasePathBox = new();
     private readonly TextBox _origDirBox = new();
@@ -31,7 +31,6 @@ public partial class Form1 : Form
     private readonly Button _refreshChecksButton = new();
     private readonly Button _initializeDatabaseButton = new();
     private readonly Button _cloneButton = new();
-    private readonly Button _installUbuntuButton = new();
     private bool _anyServiceRunning;
     private bool _ubuntuInstalled;
 
@@ -142,11 +141,6 @@ public partial class Form1 : Form
         _refreshChecksButton.AutoSize = true;
         _refreshChecksButton.Click += async (_, _) => await RefreshAllAsync();
         body.Controls.Add(_refreshChecksButton);
-
-        _installUbuntuButton.Text = "Ubuntu-20.04 インストール";
-        _installUbuntuButton.AutoSize = true;
-        _installUbuntuButton.Click += async (_, _) => await InstallUbuntuAsync();
-        body.Controls.Add(_installUbuntuButton);
 
         _initializeDatabaseButton.Text = "データベース初期化";
         _initializeDatabaseButton.AutoSize = true;
@@ -499,27 +493,6 @@ public partial class Form1 : Form
         await RefreshServicesAsync();
     }
 
-    private async Task InstallUbuntuAsync()
-    {
-        var result = MessageBox.Show(
-            this,
-            $"{WslEnvironment.UbuntuDistro} を WSL にインストールします。Windows の設定や再起動、Ubuntu の初期ユーザー作成が必要になる場合があります。続行しますか?",
-            "WSL Ubuntu install",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Information,
-            MessageBoxDefaultButton.Button2);
-        if (result != DialogResult.Yes)
-        {
-            return;
-        }
-
-        await RunBusyAsync(async () =>
-        {
-            await new WslEnvironment().InstallUbuntuAsync(AppendLog);
-            await RefreshChecksAsync();
-        });
-    }
-
     private async Task InitializeDatabaseAsync()
     {
         var result = MessageBox.Show(
@@ -754,7 +727,6 @@ public partial class Form1 : Form
         UpdateServiceUrlLink();
         _cloneButton.Enabled = !busy && !ReleaseRepository().DirectoryExists();
         _refreshChecksButton.Enabled = !busy && !_anyServiceRunning;
-        _installUbuntuButton.Enabled = !busy && !_anyServiceRunning && !_ubuntuInstalled;
         _initializeDatabaseButton.Enabled = !busy && repoReady && _anyServiceRunning;
         _saveEnvButton.Enabled = !busy && repoReady && !_anyServiceRunning;
         _selectOrigButton.Enabled = !busy && !_anyServiceRunning;

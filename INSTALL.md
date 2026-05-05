@@ -4,27 +4,82 @@
 ## 1. 必要なOS、アプリケーション
 - Windows 10 / 11
 - Docker Desktop for Windows
-- Git for Windows
+- Windows WSL2
 
 ### 1.1 Docker Desktop のインストール
 Docker Desktop をダウンロードしてインストールします。
 配布元 [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/)
 
-![Docker Desktop for Windows](./assets/1-1docker-desktop.jpg)
+ダウンロードしたインストーラーをダブルクリックしてください。
 
-### 1.2 Git for Windows のインストール
-Git for Windows をダウンロードしてインストールします。
-配布元 [Git for Windows](https://gitforwindows.org/)
+![Docker Desktop for Windows official site](./assets/1-1docker-desktop.jpg)
 
-![Git for Windows](./assets/1-2git.jpg)
+そのまま 「OK」
 
-## 2. Phantom Manager のインストール
+![Docker Desktop for Windows install 1](./assets/1-1.jpg)
+
+インストールが始まる
+
+![Docker Desktop for Windows install 2](./assets/1-2.jpg)
+
+インストールが終わる。「Close and restart」をクリックしてパソコンを再起動する。
+
+![Docker Desktop for Windows install 3](./assets/1-3.jpg)
+
+
+
+### 1.2 Docker Desktop の初期設定
+デスクトップに Docker Desktop for Windows のアイコンがあるのでダブルクリックして起動する。
+
+記載事項に承諾するなら「Accept」
+
+![Docker Desktop for Windows setup 1](./assets/2-1.jpg)
+
+メールアドレスを登録するかgoogleなどのアカウントでサインイン、またはSkip
+
+![Docker Desktop for Windows setup 2](./assets/2-2.jpg)
+
+このような画面になれば初期設定完了
+
+![Docker Desktop for Windows setup 3](./assets/2-3.jpg)
+
+もし、「WSL needs updating」と表示されたら、「Try Again」をクリックする。
+
+![Docker Desktop for Windows setup 4](./assets/2-4.jpg)
+
+このような画面がでるので、Enterキーなど押す。
+
+![Docker Desktop for Windows setup 5](./assets/2-5.jpg)
+
+「はい」
+
+![Docker Desktop for Windows setup 6](./assets/2-6.jpg)
+
+セットアップが始まる。のこのようになるまで待つ。
+
+![Docker Desktop for Windows setup 7](./assets/2-7.jpg)
+
+## 2. Phantom Manager の前準備
 ### 2.1 Phantom Manager のダウンロード
-PhantomManager.zip を入手し、展開します。
-展開後のフォルダにデータが保存されるため、50GB 以上の空き容量が必要です。
+[Phantom manager配布サイト](https://github.com/hyperion13th144m/phantom-manager/releases)
+phantom-manager-vx.y.z-win-x64.zipを入手します。x.y.z はバージョン番号です。最新版を入手してください。
 
-展開すると、次のようなファイルがあることを確認してください。
-![Phantom Manager 展開後のファイル](./assets/2-1pm.jpg)
+そのファイルをダブルクリックします。「全て展開」をクリックします。
+ファイルを保存するフォルダを選択する画面が現れるので、適当なフォルダを選択する。
+
+![Phantom Manager extract](./assets/4-1.jpg)
+
+### 2.2 WSL のセットアップ
+「wsl-install.bat」というファイルがあるのでダブルクリックする。
+
+次のような画面が現れるので、ユーザ名、パスワードを入力する。
+![Phantom Manager wsl](./assets/3.jpg)
+
+
+![Phantom Manager extract](./assets/4-2.jpg)
+![Phantom Manager extract](./assets/4-3.jpg)
+![Phantom Manager extract](./assets/4-4.jpg)
+![Phantom Manager 1](./assets/2-1pm.jpg)
 
 
 ## 3. Phantom Manager の起動, 初期設定

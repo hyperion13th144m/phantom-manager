@@ -35,11 +35,6 @@ internal sealed class WslEnvironment
         return new WslStatus(true, ubuntuInstalled, string.Join(", ", names), "");
     }
 
-    public async Task InstallUbuntuAsync(Action<string>? log)
-    {
-        await CommandRunner.RunAsync("wsl.exe", new[] { "--install", "-d", UbuntuDistro }, AppContext.BaseDirectory, log);
-    }
-
     private static string Normalize(string text)
     {
         return text.Replace("\0", "").Trim();

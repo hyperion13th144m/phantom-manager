@@ -13,6 +13,7 @@ $RootDir = Split-Path -Parent $ProjectDir
 $DistDir = Join-Path $RootDir "dist"
 $PublishDir = Join-Path $DistDir "phantom-manager-$Version-win-x64"
 $ZipPath = Join-Path $DistDir "phantom-manager-$Version-win-x64.zip"
+$WslInstallBat = Join-Path $ProjectDir "wsl-install.bat"
 
 Push-Location $ProjectDir
 try {
@@ -41,6 +42,8 @@ try {
         -p:AssemblyName=phantom-manager `
         -p:EnableCompressionInSingleFile=true `
         -o $PublishDir
+
+    Copy-Item -LiteralPath $WslInstallBat -Destination $PublishDir -Force
 
     Compress-Archive -Path (Join-Path $PublishDir "*") -DestinationPath $ZipPath -Force
 

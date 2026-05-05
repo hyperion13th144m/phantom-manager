@@ -31,3 +31,8 @@ TestResults/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+*.pptx
+*.swp
+*.un~
+*.md~
