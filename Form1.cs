@@ -3,7 +3,7 @@ namespace PhantomManager;
 
 public partial class Form1 : Form
 {
-    private const string AppVersion = "v1.0.6";
+    private const string AppVersion = "v1.0.7";
     private const string FixedEnvSrcDir = "./var/internet-app-data";
     private readonly TextBox _releasePathBox = new();
     private readonly TextBox _origDirBox = new();

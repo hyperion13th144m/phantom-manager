@@ -59,7 +59,7 @@ Docker Desktop をダウンロードしてインストールします。
 
 ![Docker Desktop for Windows setup 7](./assets/2-7.jpg)
 
-## 2. Phantom Manager の前準備
+## 2. Phantom Manager のインストール・設定
 ### 2.1 Phantom Manager のダウンロード
 [Phantom manager配布サイト](https://github.com/hyperion13th144m/phantom-manager/releases)
 phantom-manager-vx.y.z-win-x64.zipを入手します。x.y.z はバージョン番号です。最新版を入手してください。
@@ -76,101 +76,108 @@ phantom-manager-vx.y.z-win-x64.zipを入手します。x.y.z はバージョン�
 ![Phantom Manager wsl](./assets/3.jpg)
 
 
-![Phantom Manager extract](./assets/4-2.jpg)
-![Phantom Manager extract](./assets/4-3.jpg)
-![Phantom Manager extract](./assets/4-4.jpg)
-![Phantom Manager 1](./assets/2-1pm.jpg)
-
-
 ## 3. Phantom Manager の起動, 初期設定
 ### 3.1 Phantom Manager の起動
-展開したフォルダ内の `phantom-manager.exe` をダブルクリックして起動します。
+フォルダ内の `phantom-manager.exe` をダブルクリックして起動します。
+
+![Phantom Manager invoke](./assets/4-1-1.jpg)
+
+警告がでます。「詳細情報」
+
+![Phantom Manager extract](./assets/4-2.jpg)
+
+「実行」
+![Phantom Manager extract](./assets/4-3.jpg)
 
 
-次のようなウィンドウが表示されるはずです。
-![Phantom Manager 起動](./assets/3-1pm.jpg)
+### 3.2 確認
+画面左上「環境チェック」で次の項目に○があることを確認してください。バージョン番号は違っていてもよいです。
 
-上記ウィンドウは、R:\development\phantom フォルダに phantom-manager.exe を配置した場合ですが、あなたの環境にあわせて異なるフォルダ名が表示されています。
+- ○ Docker Desktop for Windows: インストール済み / ○ 起動中
+    - もし × なら Docker Desktop for Windows をインストール/起動してください。
+- ○ Git in Ubuntu-20.04: インストール済み
+    - もし × なら 「2.2 WSLのセットアップ」 が未実行の可能性があります。
+- ○ WSL Ubuntu-20.04:インストール済み
+    - もし × なら 「2.2 WSLのセットアップ」 が未実行の可能性があります。
 
-### 3.2 全文検索システムのダウンロード
-画面右上の `Clone` ボタンを押すと、全文検索システムがダウンロードされます。
-![phantom-release クローン開始](./assets/3-2clone.jpg)
+![Phantom Manager config](./assets/5-1.jpg)
 
-ダウンロードが完了すると、次のような表示になります。
-![phantom-release クローン完了](./assets/3-2clone-done.jpg)
+### 3.3 初期設定
+画面中央上の `Clone` ボタンを押すと、全文検索システムがダウンロードされます。
 
+![Phantom Manager config](./assets/5-2.jpg)
 
-### 3.3 全文検索システムのバージョン設定
-画面右側の「バージョンの更新」をクリックしてください。
-![バージョンの更新](./assets/3-3version.jpg)
+Cloneが完了するとバージョン一覧が現れます。2026/5/5時点の最新版 v1.0.36 を選択し、「チェックアウト」ボタンをクリックしてください。
 
-その後、左側のプルダウンからバージョンを選択できます。
-一番上の最新（2026年4月25日現在は、v1.0.14）を選択し、「チェックアウト」ボタンをクリックしてください。
-![バージョンの指定](./assets/3-3set-version.jpg)
+![Phantom Manager config](./assets/5-3.jpg)
 
-バージョン設定されると、次のような表示になります。
-![バージョン設定完了](./assets/3-3set-version2.jpg)
+次のように表示されます。
 
-### 3.4 設定ファイルの生成
-画面中央のデータディレクトリ付近にある「env 保存」をクリックしてください。
+![Phantom Manager config](./assets/5-4.jpg)
 
-![設定ファイル](./assets/3-4dotenv.jpg)
-
+「.env保存」をクリックしてください。画面下のテキストに「.envを作成した」旨の表示がでます。
+![Phantom Manager config](./assets/5-5.jpg)
 
 ## 4. 取り込むデータの準備
-本システムに取り込むインターネット出願ソフトのデータを「インターネット出願ソフトのデータ」というフォルダにコピーしてください。
+インターネット出願ソフトのデータを本システムの所定のフォルダにコピーします。
 
 手動か半自動でコピーできます。手動の場合は、4.1～4.2の手順に従ってください。半自動の場合は、4.3の手順に従ってください。
 
 ### 4.1 コピー先
-![設定ファイル](./assets/4-1source-folder.jpg)
+「データフォルダを開く」をクリックするとコピー先のフォルダ「internet-app-data」が現れます。
+
+![Phantom Manager config](./assets/5-5a.jpg)
+
+![folder to be copied](./assets/5-7.jpg)
 
 ### 4.2 コピーするデータ
 インターネット出願ソフトのデータは、通常、「CドライブのJPODATAフォルダ」に保存される。
 
 ![インターネット出願ソフトのデータ構成](./assets/4-2jpodata.jpg)
 
-APPL.JP1か、J05で終わるフォルダを適当に選んで「インターネット出願ソフトのデータ」フォルダにコピーしてください。
+APPL.JP1か、J05で終わるフォルダを適当に選んで「internet-app-data」にコピーしてください。
 
 ![出願系ファイルの場所](./assets/4-2appl.jpg)
 
 
-NOTICE.JP1 まるごとか、発送書類を受け取った日付のフォルダを適当に選んで「インターネット出願ソフトのデータ」フォルダにコピーしてください。
+NOTICE.JP1 まるごとか、発送書類を受け取った日付のフォルダを適当に選んで「internet-app-data」にコピーしてください。
 
 
 ![発送系ファイルの場所](./assets/4-2notice.jpg)
 
 
 ### 4.3 半自動でのコピー
-インターネット出願ソフトのデータが保存されているフォルダを指定します。ネットワークドライブでもOKです。
+「元データ選択」をクリックし、インターネット出願ソフトのデータが保存されているフォルダを指定します。ネットワークドライブでもOKです。
 
-![半自動でのコピー](./assets/4-3select-folder.jpg)
+![source directory](./assets/5-6-0.jpg)
 
 
-選択したフォルダが表示されていることを確認してください。図では、C:\JPODATA を選択しています。その後、「ミラーバッチ作成」をクリックしてください。
-![ミラーバッチ作成](./assets/4-3make-batch.jpg)
+選択したフォルダが表示されていることを確認してください。「ミラーバッチ作成」をクリックします。
+
+![ミラーバッチ作成](./assets/5-6.jpg)
 
 「bat」フォルダに、「mirror.bat」というファイルが生成されます。
 
-![bat folder](./assets/4-3bat-folder.jpg)
-![mirror.bat](./assets/4-3batch.jpg)
+![bat folder](./assets/5-8.jpg)
 
-この「mirror.bat」をダブルクリックして実行してください。これで、インターネット出願ソフトのデータが「インターネット出願ソフトのデータ」フォルダにコピーされます。
-![mirror.bat 実行](./assets/4-3exec-bat.jpg)
 
-コピーが完了すると自動的に画面は消えます。log フォルダにmirror.log というファイルが生成されていることを確認してください。
+「mirror.bat」をダブルクリックして実行してください。これで、インターネット出願ソフトのデータが「internet-app-data」フォルダにコピーされます。
+
+![mirror.bat 実行](./assets/5-9.jpg)
+
+コピーが完了したら画面が消えます。
 
 インターネット出願ソフトのデータが増えた場合でも「mirror.bat」を再度実行することで、最新のデータをコピーできます。
 
 
-## 5. サーバー起動
+## 5. サーバー起動・停止
 ### 5.1 起動
+全文検索システムのサーバーを起動します。
 「起動」ボタンをクリックしてください。
-![サーバー起動](./assets/5-start.jpg)
+初回はダウンロードに相当時間かかります。次のような画面になるまで待ってください。
 
-### 5.2 起動後の表示
-起動後、次のような表示になります。
-![サーバー起動後の表示](./assets/5-running.jpg)
+![Phantom Manager config](./assets/5-10.jpg)
+
 http://... のリンクをクリックすると、ブラウザで全文検索システムが表示されます。
 
 ### 5.3 停止
@@ -180,5 +187,6 @@ http://... のリンクをクリックすると、ブラウザで全文検索シ
 ブラウザに「管理画面」が表示されます。「crow の管理画面へ」→「ALL」を選択して、「ジョブ開始」すると、「インターネット出願ソフトのデータ」フォルダにコピーしたデータがデータベースに取り込まれます。
 
 適宜、↓を繰り返してください。
-- 大元のインターネット出願ソフトのデータが増えたら、手動コピーor mirro.bat を実行
+- インターネット出願ソフトのデータが増えたら、手動コピー or mirro.bat を実行
 - crow ⇒ ALL ⇒ ジョブ開始
+
