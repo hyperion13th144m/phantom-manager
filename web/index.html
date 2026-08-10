@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phantom 全文検索システム管理</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="bar">
+  <h1>phantom 全文検索システム管理</h1>
+  <span class="grow"></span>
+  <span id="conn" class="badge badge-off">未接続</span>
+  <span id="version" class="version"></span>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>環境チェック</h2>
+    <ul id="checks" class="checks"></ul>
+    <div class="panel-actions">
+      <button type="button" id="recheck">再チェック</button>
+      <span id="checked-at" class="muted"></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>ログ</h2>
+    <div id="log" class="log" aria-live="polite"></div>
+    <div class="log-actions">
+      <button type="button" id="clear">表示をクリア</button>
+      <label><input type="checkbox" id="follow" checked> 自動スクロール</label>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

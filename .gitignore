@@ -1,3 +1,10 @@
+# Go build outputs
+/phantom-manager
+/dist/
+
+# Claude Code local settings
+.claude/settings.local.json*
+
 # Build outputs
 bin/
 obj/

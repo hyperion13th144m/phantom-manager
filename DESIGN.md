@@ -8,9 +8,9 @@
 > この文書は、そのセッションがコールドスタートで実装に入れるようにするための引き継ぎ資料。
 > 要件・旧実装の分析・WSL2 固有の落とし穴・推奨アーキテクチャ・未決事項をまとめてある。
 >
-> **文中のソースへのリンクはリポジトリ直下を指している。**
-> このブランチでは旧 C# 実装（WinForms）がリポジトリ直下に置かれたままになっている。
-> 新実装を入れる際にディレクトリ構成をどうするかは未決（§8-5）。
+> **文中のソースへのリンクは `old/` を指している。**
+> 旧 C# 実装（WinForms）は 2026-08-11 に `old/` へ退避した（§8-5 の決定）。
+> 新実装はリポジトリ直下（`main.go` + `internal/` + `web/`）に置く。
 
 ---
 
@@ -42,7 +42,7 @@ WSL2 内でローカル HTTP サーバを起動し、Windows 側のブラウザ�
 - Windows 10 / 11 + WSL2（Ubuntu）
 - Docker
   - 旧 manager は **Docker Desktop for Windows**（WSL2 backend）前提で、WSL 内から
-    `/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe` を叩いていた（[DockerCli.cs](DockerCli.cs)）
+    `/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe` を叩いていた（[DockerCli.cs](old/DockerCli.cs)）
   - 新 manager は WSL 内で動くので、**WSL ネイティブの `docker` / `docker compose` を素直に使えばよい**。
     Docker Desktop 統合が有効なら `docker` は PATH 上にある（`/usr/bin/docker` → Desktop の shim）
   - ⚠ 未決: Docker Desktop 前提を維持するか、WSL 内 docker engine 直インストールも許容するか → §8
@@ -60,19 +60,19 @@ WSL2 内でローカル HTTP サーバを起動し、Windows 側のブラウザ�
 
 | ファイル | 役割 | 新 manager での扱い |
 |---|---|---|
-| [Form1.cs](Form1.cs) (844行) | UI 全部 + 画面ロジック全部 | **作り直し**（Web UI へ） |
-| [WslCommand.cs](WslCommand.cs) | `wsl.exe -d Ubuntu-20.04 -- bash -lc "<script>"` のラッパ。パスの `~` 展開とシングルクォートエスケープ | **不要**（WSL 内で直接実行する）。ただし**クォート処理のロジックは移植価値あり** |
-| [WslEnvironment.cs](WslEnvironment.cs) | `wsl.exe --version` / `--list --quiet` でディストリ検出 | **不要**（自分がその中にいる） |
-| [CommandRunner.cs](CommandRunner.cs) | プロセス起動・stdout/stderr の行単位コールバック・タイムアウト付き quiet 実行 | **移植**。ログのストリーミング配信に必要 |
-| [GitRepository.cs](GitRepository.cs) | clone / fetch --tags / tag 一覧 / checkout / detached HEAD 判定 | **移植**（ただし tag checkout → pull に変更、§3.3） |
-| [DockerComposeClient.cs](DockerComposeClient.cs) | `compose up -d` / `down` / `ps --all --format json` のパース | **移植**（`--env-file .env.docker` の追加と build/pull 追加が必要） |
-| [DockerCli.cs](DockerCli.cs) | docker.exe のパス解決（Windows 側／`/mnt/c` 側） | **不要**（WSL の `docker` を使う） |
-| [MirrorBatchWriter.cs](MirrorBatchWriter.cs) | robocopy の `.bat` を **Shift_JIS** で生成 | **移植（要変更）**。§5 |
-| [NetworkAddressProvider.cs](NetworkAddressProvider.cs) | vEthernet / Hyper-V を除外して実 IPv4 を選ぶ | **要再実装**。§6 が急所 |
-| [NginxSslCertificateGenerator.cs](NginxSslCertificateGenerator.cs) | openssl でローカル CA + サーバ証明書を生成 | **保留**（新 release に対応する仕組みが無い、§3.3） |
-| [ElasticsearchInitializer.cs](ElasticsearchInitializer.cs) | `compose exec es /init.sh -f` | **保留**（同上） |
-| [release.ps1](release.ps1) | `dotnet publish` + zip + tag push + GitHub Release | **作り直し**（§7 の配布方式に合わせる） |
-| [wsl-install.bat](wsl-install.bat) | 中身は `wsl --install -d Ubuntu-20.04` の 2 行 | 新方式では Windows 側の導線として別途検討 |
+| [Form1.cs](old/Form1.cs) (844行) | UI 全部 + 画面ロジック全部 | **作り直し**（Web UI へ） |
+| [WslCommand.cs](old/WslCommand.cs) | `wsl.exe -d Ubuntu-20.04 -- bash -lc "<script>"` のラッパ。パスの `~` 展開とシングルクォートエスケープ | **不要**（WSL 内で直接実行する）。ただし**クォート処理のロジックは移植価値あり** |
+| [WslEnvironment.cs](old/WslEnvironment.cs) | `wsl.exe --version` / `--list --quiet` でディストリ検出 | **不要**（自分がその中にいる） |
+| [CommandRunner.cs](old/CommandRunner.cs) | プロセス起動・stdout/stderr の行単位コールバック・タイムアウト付き quiet 実行 | **移植**。ログのストリーミング配信に必要 |
+| [GitRepository.cs](old/GitRepository.cs) | clone / fetch --tags / tag 一覧 / checkout / detached HEAD 判定 | **移植**（ただし tag checkout → pull に変更、§3.3） |
+| [DockerComposeClient.cs](old/DockerComposeClient.cs) | `compose up -d` / `down` / `ps --all --format json` のパース | **移植**（`--env-file .env.docker` の追加と build/pull 追加が必要） |
+| [DockerCli.cs](old/DockerCli.cs) | docker.exe のパス解決（Windows 側／`/mnt/c` 側） | **不要**（WSL の `docker` を使う） |
+| [MirrorBatchWriter.cs](old/MirrorBatchWriter.cs) | robocopy の `.bat` を **Shift_JIS** で生成 | **移植（要変更）**。§5 |
+| [NetworkAddressProvider.cs](old/NetworkAddressProvider.cs) | vEthernet / Hyper-V を除外して実 IPv4 を選ぶ | **要再実装**。§6 が急所 |
+| [NginxSslCertificateGenerator.cs](old/NginxSslCertificateGenerator.cs) | openssl でローカル CA + サーバ証明書を生成 | **保留**（新 release に対応する仕組みが無い、§3.3） |
+| [ElasticsearchInitializer.cs](old/ElasticsearchInitializer.cs) | `compose exec es /init.sh -f` | **保留**（同上） |
+| [release.ps1](old/release.ps1) | `dotnet publish` + zip + tag push + GitHub Release | **作り直し**（§7 の配布方式に合わせる） |
+| [wsl-install.bat](old/wsl-install.bat) | 中身は `wsl --install -d Ubuntu-20.04` の 2 行 | 新方式では Windows 側の導線として別途検討 |
 | [INSTALL.md](INSTALL.md) + `assets/*.jpg` | スクリーンショット付きインストール手順（33枚） | **画像は作り直しが必要**（UI が変わるため）。文章構成は流用可 |
 
 ### 3.2 旧 UI の構成（画面設計の参考）
@@ -100,7 +100,7 @@ WSL2 内でローカル HTTP サーバを起動し、Windows 側のブラウザ�
 **踏襲すべき良い点:**
 - 実行したコマンドと出力を**すべてログ枠に流す**（`> wsl.exe -d ... -- bash -lc ...` の形で）。
   トラブル時にユーザーがログを貼れば原因が分かる。Web UI では **SSE でストリーミング**する。
-- **状態に応じたボタンの有効/無効制御**（[Form1.cs:720](Form1.cs:720) `SetBusy`）。
+- **状態に応じたボタンの有効/無効制御**（[Form1.cs:720](old/Form1.cs:720) `SetBusy`）。
   サービス起動中は `.env` 保存やタグ切替を無効化して、実行中サービスとの競合を防いでいる。
   この排他ロジックはそのまま活きるので、条件を移植すること。
 - 起動時に自動で全チェックを走らせる（`Shown += RefreshAllAsync`）。
@@ -169,7 +169,7 @@ docker compose --env-file .env.docker down
 
 **Windows のローカルディスク（例 `D:\jpodata`）→ WSL の `~/phantom/data/src` へのコピー。**
 
-### 旧実装の方式（[MirrorBatchWriter.cs](MirrorBatchWriter.cs)）
+### 旧実装の方式（[MirrorBatchWriter.cs](old/MirrorBatchWriter.cs)）
 
 Windows 側で実行する `.bat` を生成し、`robocopy` で **Windows → `\\wsl.localhost\<distro>\...`** へミラーする。
 
@@ -198,7 +198,7 @@ exit /b %ERRORLEVEL%
    → **`.bat` の中身は Windows パス表現**であることに注意（生成する側が Linux でも中身は Windows 用）
 2. **コピー先が `PHANTOM_SRC_DIR`（`~/phantom/data/src`）になる。**
    `.bat` の `DATA_DIR` には `\\wsl.localhost\<distro>\home\<user>\phantom\data\src` を書く。
-   → distro 名と Linux 絶対パスから UNC を組む処理は [Form1.cs:668](Form1.cs:668) `ToWslUncPath` を移植。
+   → distro 名と Linux 絶対パスから UNC を組む処理は [Form1.cs:668](old/Form1.cs:668) `ToWslUncPath` を移植。
    → **distro 名の取得方法が変わる**（§6-2）
 3. **コピー対象に HTM / GIF / JPG を追加する（cendrillon 対応）。**
    cendrillon の実装により、XML が残っておらず **HTML + 画像しかない文書も取り込めるようになった**。
@@ -253,14 +253,14 @@ exit /b %ERRORLEVEL%
 - distro 名の取得: 旧は Windows 側から `wsl.exe --list --quiet` で取っていた。WSL 内からは
   **`$WSL_DISTRO_NAME` 環境変数**が使える（これが最も簡単）。フォールバックとして
   `wslpath -w /` の結果（`\\wsl.localhost\<distro>\`）からパースする手もある。
-- 旧 manager は distro を `Ubuntu-20.04` に**ハードコード**していた（[WslEnvironment.cs:5](WslEnvironment.cs:5)）。
+- 旧 manager は distro を `Ubuntu-20.04` に**ハードコード**していた（[WslEnvironment.cs:5](old/WslEnvironment.cs:5)）。
   新 manager では `$WSL_DISTRO_NAME` で動的に取ること。
 
 ### 6-3. WSL2 のネットワーク（旧 `NetworkAddressProvider` の置き換え）— **最重要**
 
 旧 manager は **Windows プロセスとして** `NetworkInterface.GetAllNetworkInterfaces()` を呼び、
 `vEthernet` / `Hyper-V` を名前で除外して**Windows ホストの LAN IP** を得ていた
-（[NetworkAddressProvider.cs](NetworkAddressProvider.cs)）。これを `http://<IP>:8080/` の表示と
+（[NetworkAddressProvider.cs](old/NetworkAddressProvider.cs)）。これを `http://<IP>:8080/` の表示と
 SSL 証明書の CN/SAN に使っていた。
 
 **新 manager は WSL 内で動くので、この方法が使えない。** WSL 内で `hostname -I` を叩くと
@@ -280,7 +280,7 @@ WSL の仮想 NIC の `172.x.x.x` が返り、これは LAN の他 PC からは�
 ### 6-4. Windows 側アプリの起動（interop）
 - `explorer.exe .` でフォルダを開く、`explorer.exe http://localhost:7777` で既定ブラウザを開く
 - `wslview`（wslu パッケージ）があればそちらの方が行儀が良い
-- 旧の「データフォルダを開く」（[Form1.cs:637](Form1.cs:637)）に相当
+- 旧の「データフォルダを開く」（[Form1.cs:637](old/Form1.cs:637)）に相当
 - ⚠ interop が無効化されている環境（`/etc/wsl.conf` の `[interop] enabled=false`）を考慮し、
   **失敗しても致命的にならない設計**にすること（URL を表示してユーザーにコピーさせる導線を残す）
 
@@ -294,7 +294,7 @@ WSL の仮想 NIC の `172.x.x.x` が返り、これは LAN の他 PC からは�
 
 ⚠ 落とし穴: **bind mount 先のディレクトリが存在しないと Docker が root 所有で自動生成し、
 uid 1000 のコンテナが書けなくなる。** `up` の前に manager 側で `mkdir -p` しておくこと
-（旧 manager も `EnsureDataDirAsync` で同じことをしていた、[Form1.cs:432](Form1.cs:432)）。
+（旧 manager も `EnsureDataDirAsync` で同じことをしていた、[Form1.cs:432](old/Form1.cs:432)）。
 
 ### 6-6. localhost forwarding
 WSL 内の `127.0.0.1:PORT` が Windows の `localhost:PORT` から見えること — これが Web UI 方式の大前提。
@@ -344,18 +344,47 @@ phantom-manager (単一バイナリ)
 
 ### 7.3 移植時に活かす旧コードの知見
 
-- **シェルクォート**: [WslCommand.cs:52](WslCommand.cs:52) の `Quote()`（`'` → `'"'"'`）。
+- **シェルクォート**: [WslCommand.cs:52](old/WslCommand.cs:52) の `Quote()`（`'` → `'"'"'`）。
   ただし WSL 内で動くなら `exec.Command` に引数配列で渡せばシェルを介さずに済むので、
   **可能な限りシェルを経由しない**設計にした方が安全
 - **`~` の展開**: 旧は `~` → `$HOME` に置換していた。Go では `os.UserHomeDir()` で解決する
-- **compose ps の JSON パース**: [DockerComposeClient.cs:31](DockerComposeClient.cs:31)。
+- **compose ps の JSON パース**: [DockerComposeClient.cs:31](old/DockerComposeClient.cs:31)。
   `--format json` は **1 行 1 サービスの JSON Lines**（配列ではない）。`Ports` が空なら
   `Publishers` 配列から `published->target/protocol` を組み立てるフォールバックが実装済み。**この処理は移植価値が高い**
-- **ボタンの有効/無効条件**: [Form1.cs:720](Form1.cs:720) をそのまま条件表に起こして移植
+- **ボタンの有効/無効条件**: [Form1.cs:720](old/Form1.cs:720) をそのまま条件表に起こして移植
 
 ---
 
-## 8. 未決事項（WSL 側セッションの冒頭で確認すべきこと）
+## 8. 未決事項（→ 2026-08-11 に全件決着）
+
+**決定（実機確認と方針判断の結果）**
+
+| # | 決定 | 根拠 |
+|---|---|---|
+| 1 | **Docker Desktop for Windows の WSL 統合**を前提とする | LAN 公開の前提を維持するため。実機で Server 29.7.2 / Compose v2.16.0 を確認 |
+| 2 | clone / pull に加えて**タグ選択・チェックアウトも維持** | 実機の `~/phantom/phantom-release` が v1.0.36 の detached HEAD で、固定運用が実際に使われていた |
+| 3 | SSL 証明書生成は**廃止** | phantom-release v2.0.3 に `docker-compose.secure.yml` が存在しない |
+| 4 | データベース初期化は**廃止** | 同上、`infra/es` に `init.sh` が無い |
+| 5 | 新実装をリポジトリ直下、**旧 C# は `old/` へ退避** | 同一リポジトリで履歴を継続する |
+| 6 | 取込元選択は **PowerShell 経由の Windows 名前空間ブラウズ**（当初案の `/mnt` 走査は却下）＋ Windows パス直接入力 | ネットワークドライブが `/mnt` に出ないため。§5 の「新実装で変わる点 4」を参照 |
+| 7 | `PHANTOM_PUBLIC_URL` は `localhost` 既定、UI から Windows の LAN IP に差し替え可 | |
+| 8 | INSTALL.md のスクリーンショット撮り直しは新 UI 完成後の別タスク | |
+| 9 | **11 パターンを 1 箇所（`~/phantom/data/src`）へ**。`PHANTOM_HTML_SRC_DIR` は書かない | `*.HTML` と `*.PNG` を追加。分離はしない |
+
+**実機で確認した前提（開発機 = Windows + WSL2 / distro 名 `Ubuntu-20.04` / 中身は Ubuntu 24.04）**
+
+- localhost forwarding は**有効**。Windows 側の `Invoke-WebRequest http://localhost:7777` が 200 を返すことを確認済み（§6-6 の大前提をクリア）
+- `/etc/wsl.conf` に **`[interop] appendWindowsPath = false`** がある。interop 自体は有効だが
+  **`explorer.exe` / `powershell.exe` は PATH に無い**ので、絶対パスで解決すること（`internal/wslenv`）
+- `explorer.exe` は成功しても**終了コード 1 を返す**。終了コードで成否を判定しないこと
+- `/mnt` にはローカルドライブしか出ない。ネットワークドライブ（`P:` = `\\192.168.11.250\patent-bi`）は
+  `/mnt/p` が存在せず、`/mnt/j` はマウントポイントだけで**空**だった
+- PowerShell の出力は **CP932** なので、`[Console]::OutputEncoding=[Text.Encoding]::UTF8` +
+  `ConvertTo-Json -Compress` で受けること。`Format-Table` は値が切り詰められるので使わない
+
+---
+
+### 8-旧. 当初の未決事項（記録として残す）
 
 1. **Docker の前提**: Docker Desktop for Windows（WSL2 backend）必須か、WSL 内 docker engine 直も許すか。
    → §6-3 の LAN 公開の可否と、環境チェックの実装に影響する
