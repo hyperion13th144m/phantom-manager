@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -93,6 +94,9 @@ func TestFormatPortsFallsBackToThePortsField(t *testing.T) {
 	}
 }
 
+// The empty result must be an empty slice, never nil. A nil slice marshals to
+// JSON null, and the browser cannot tell that from a failure — it crashes on
+// the first method call and stops applying anything that came after.
 func TestParsePsHandlesNoContainers(t *testing.T) {
 	for _, in := range []string{"", "  \n ", "[]"} {
 		got, err := parsePs(in)
@@ -102,6 +106,24 @@ func TestParsePsHandlesNoContainers(t *testing.T) {
 		if len(got) != 0 {
 			t.Errorf("parsePs(%q) = %+v, want none", in, got)
 		}
+		if got == nil {
+			t.Errorf("parsePs(%q) returned nil; it marshals to null instead of []", in)
+		}
+	}
+}
+
+// The same guarantee has to survive the round trip the browser actually sees.
+func TestEmptyServiceListMarshalsAsAnArray(t *testing.T) {
+	got, err := parsePs("[]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(map[string]any{"services": got})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != `{"services":[]}` {
+		t.Errorf("encoded = %s, want an empty array", encoded)
 	}
 }
 

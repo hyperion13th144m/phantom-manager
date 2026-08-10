@@ -213,10 +213,13 @@ type publisher struct {
 // the 2.16 that Docker Desktop installs here — it printed a single JSON array.
 // The old manager only understood the line-per-object form, which would have
 // silently produced an empty service table on this machine.
+// It always returns a non-nil slice on success. A nil slice marshals to JSON
+// null rather than [], and the browser has no containers to distinguish that
+// from a failure — it just crashes on the first method call.
 func parsePs(out string) ([]Service, error) {
 	text := strings.TrimSpace(out)
 	if text == "" {
-		return nil, nil
+		return []Service{}, nil
 	}
 
 	var entries []psEntry

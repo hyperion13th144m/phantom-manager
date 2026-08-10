@@ -179,15 +179,16 @@ for (const id of ["srcDir", "dataDir", "httpPort", "publicUrl"]) {
 function renderServices(state) {
   $("compose-error").textContent = state.composeError ?? "";
 
+  const services = state.services ?? [];
   const url = $("phantom-url");
-  const running = state.services.some((s) => s.running);
+  const running = services.some((s) => s.running);
   url.textContent = running ? state.publicUrl : "";
   url.href = state.publicUrl || "#";
   url.hidden = !running;
 
   const body = $("services");
   body.replaceChildren();
-  if (!state.services.length) {
+  if (!services.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
     td.colSpan = 4;
@@ -197,7 +198,7 @@ function renderServices(state) {
     body.append(tr);
     return;
   }
-  for (const svc of state.services) {
+  for (const svc of services) {
     const tr = document.createElement("tr");
     for (const [value, cls] of [
       [svc.name, "name"],
@@ -420,20 +421,38 @@ function applyCapabilities(can, busy) {
 
 let refreshing = false;
 
+// Panels are drawn independently and the controls are updated last, whatever
+// happened above. One panel that fails to draw used to abort the rest of the
+// refresh, which left every button frozen at whatever it happened to be —
+// a broken service table made the whole page look disabled.
+function draw(name, render) {
+  try {
+    render();
+  } catch (e) {
+    console.error(`${name} の描画に失敗しました`, e);
+    return `${name}: ${e.message}`;
+  }
+  return "";
+}
+
 async function refresh() {
   if (refreshing) return;
   refreshing = true;
   try {
     const state = await api("/api/state");
-    renderChecks(state.checks);
-    renderRepo(state.repo);
-    renderEnv(state);
-    renderServices(state);
+    const failures = [
+      draw("環境チェック", () => renderChecks(state.checks)),
+      draw("バージョン", () => renderRepo(state.repo)),
+      draw("データディレクトリ", () => renderEnv(state)),
+      draw("サービス", () => renderServices(state)),
+    ].filter(Boolean);
 
-    const busy = state.job.running;
+    const busy = state.job?.running ?? false;
     $("job").textContent = busy ? `実行中: ${state.job.name}` : "";
     $("cancel").hidden = !busy;
-    applyCapabilities(state.can, busy);
+    applyCapabilities(state.can ?? {}, busy);
+
+    if (failures.length) $("checked-at").textContent = `表示エラー: ${failures.join(" / ")}`;
   } catch (e) {
     $("checked-at").textContent = `状態を取得できませんでした: ${e.message}`;
   } finally {
