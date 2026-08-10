@@ -1,0 +1,64 @@
+# Builds the release artifact when a version tag is pushed.
+#
+# The old manager shipped a self-contained .NET single-file exe inside a zip,
+# built and uploaded from a developer's Windows machine by release.ps1. This
+# runs in CI instead, and the artifact is one Linux binary: the manager now runs
+# inside WSL, and a Go binary has no runtime to install alongside it. That
+# matters because this is a bootstrap tool — it has to work on a WSL2 Ubuntu
+# where nothing has been set up yet.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go test ./...
+
+      - name: build
+        env:
+          # WSL2 is x86_64 on the machines this targets. CGO is off so the
+          # binary does not depend on the glibc of whatever built it.
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          version="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -X main.Version=${version}" -o dist/phantom-manager .
+          cd dist
+          sha256sum phantom-manager > phantom-manager.sha256
+          ./phantom-manager -version
+
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME}"
+          notes=$(cat <<EOF
+          WSL2 の Ubuntu 内で実行してください。
+
+              curl -fsSL -o phantom-manager https://github.com/${GITHUB_REPOSITORY}/releases/download/${version}/phantom-manager
+              chmod +x phantom-manager
+              ./phantom-manager
+
+          チェックサムは phantom-manager.sha256 を参照してください。
+          EOF
+          )
+          gh release create "$version" \
+            dist/phantom-manager dist/phantom-manager.sha256 \
+            --title "$version" \
+            --notes "$notes"
