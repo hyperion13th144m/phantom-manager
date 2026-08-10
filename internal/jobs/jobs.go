@@ -9,6 +9,7 @@
 package jobs
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"sync"
@@ -59,6 +60,7 @@ type Manager struct {
 	mu      sync.Mutex
 	running bool
 	status  Status
+	cancel  context.CancelFunc
 	seq     int64
 	nextID  int64
 	ring    []Event
@@ -84,7 +86,12 @@ func (l *Log) Info(text string) { l.Emit(KindInfo, text) }
 
 // Start begins a job unless one is already running. fn runs on its own
 // goroutine; Start returns as soon as the job is accepted.
-func (m *Manager) Start(name string, fn func(*Log) error) (Status, error) {
+//
+// The context handed to fn is not the HTTP request's: the request returns
+// immediately, and cancelling the job with it would kill every operation the
+// moment it was launched. It is cancelled by Cancel instead, so a pull that
+// hangs on an unreachable registry can still be called off.
+func (m *Manager) Start(name string, fn func(context.Context, *Log) error) (Status, error) {
 	m.mu.Lock()
 	if m.running {
 		st := m.status
@@ -93,7 +100,9 @@ func (m *Manager) Start(name string, fn func(*Log) error) (Status, error) {
 	}
 	m.nextID++
 	id := strconv.FormatInt(m.nextID, 10)
+	ctx, cancel := context.WithCancel(context.Background())
 	m.running = true
+	m.cancel = cancel
 	m.status = Status{ID: id, Name: name, Running: true, Started: time.Now().Format(time.RFC3339)}
 	st := m.status
 	m.mu.Unlock()
@@ -101,8 +110,9 @@ func (m *Manager) Start(name string, fn func(*Log) error) (Status, error) {
 	m.publish(KindStart, name, id)
 
 	go func() {
+		defer cancel()
 		log := &Log{m: m, id: id}
-		err := fn(log)
+		err := fn(ctx, log)
 
 		m.mu.Lock()
 		m.status.Running = false
@@ -114,6 +124,7 @@ func (m *Manager) Start(name string, fn func(*Log) error) (Status, error) {
 			m.status.Error = ""
 		}
 		m.running = false
+		m.cancel = nil
 		m.mu.Unlock()
 
 		if err != nil {
@@ -132,6 +143,20 @@ func (m *Manager) Busy() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.running
+}
+
+// Cancel stops the running job, if any, and reports whether there was one.
+func (m *Manager) Cancel() bool {
+	m.mu.Lock()
+	cancel := m.cancel
+	running := m.running
+	m.mu.Unlock()
+	if !running || cancel == nil {
+		return false
+	}
+	m.publish(KindInfo, "中止を要求しました", "")
+	cancel()
+	return true
 }
 
 // Status returns the current or most recent job status.

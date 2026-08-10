@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func waitFor(t *testing.T, cond func() bool, msg string) {
 func TestOnlyOneJobRunsAtATime(t *testing.T) {
 	m := New()
 	release := make(chan struct{})
-	if _, err := m.Start("first", func(l *Log) error {
+	if _, err := m.Start("first", func(ctx context.Context, l *Log) error {
 		<-release
 		return nil
 	}); err != nil {
@@ -29,14 +30,14 @@ func TestOnlyOneJobRunsAtATime(t *testing.T) {
 	}
 	waitFor(t, m.Busy, "the first job to be marked running")
 
-	if _, err := m.Start("second", func(l *Log) error { return nil }); !errors.Is(err, ErrBusy) {
+	if _, err := m.Start("second", func(ctx context.Context, l *Log) error { return nil }); !errors.Is(err, ErrBusy) {
 		t.Fatalf("second Start error = %v, want ErrBusy", err)
 	}
 
 	close(release)
 	waitFor(t, func() bool { return !m.Busy() }, "the first job to finish")
 
-	if _, err := m.Start("third", func(l *Log) error { return nil }); err != nil {
+	if _, err := m.Start("third", func(ctx context.Context, l *Log) error { return nil }); err != nil {
 		t.Fatalf("Start after completion: %v", err)
 	}
 }
@@ -50,7 +51,7 @@ func TestSubscriberReceivesLinesWhileJobRuns(t *testing.T) {
 	}
 
 	step := make(chan struct{})
-	if _, err := m.Start("streaming", func(l *Log) error {
+	if _, err := m.Start("streaming", func(ctx context.Context, l *Log) error {
 		l.Info("one")
 		<-step
 		l.Info("two")
@@ -75,12 +76,44 @@ func TestSubscriberReceivesLinesWhileJobRuns(t *testing.T) {
 	}
 }
 
+// A job that hangs must be stoppable, otherwise the single job slot is lost
+// for the life of the process.
+func TestCancelStopsTheRunningJob(t *testing.T) {
+	m := New()
+	if got := m.Cancel(); got {
+		t.Error("Cancel with nothing running = true")
+	}
+
+	started := make(chan struct{})
+	if _, err := m.Start("hanging", func(ctx context.Context, l *Log) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+
+	if got := m.Cancel(); !got {
+		t.Fatal("Cancel while running = false")
+	}
+	waitFor(t, func() bool { return !m.Busy() }, "the cancelled job to finish")
+
+	if st := m.Status(); !st.Failed {
+		t.Errorf("status = %+v, want Failed after cancellation", st)
+	}
+	// The slot has to be free again.
+	if _, err := m.Start("next", func(ctx context.Context, l *Log) error { return nil }); err != nil {
+		t.Errorf("Start after cancellation: %v", err)
+	}
+}
+
 func TestFailedJobIsReportedInStatusAndLog(t *testing.T) {
 	m := New()
 	ch, _, cancel := m.Subscribe()
 	defer cancel()
 
-	if _, err := m.Start("failing", func(l *Log) error { return errors.New("boom") }); err != nil {
+	if _, err := m.Start("failing", func(ctx context.Context, l *Log) error { return errors.New("boom") }); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	waitFor(t, func() bool { return !m.Busy() }, "the job to finish")

@@ -7,13 +7,21 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/hyperion13th144m/phantom-manager/internal/envcheck"
+	"github.com/hyperion13th144m/phantom-manager/internal/envfile"
+	"github.com/hyperion13th144m/phantom-manager/internal/gitrepo"
 	"github.com/hyperion13th144m/phantom-manager/internal/jobs"
+	"github.com/hyperion13th144m/phantom-manager/internal/runner"
+	"github.com/hyperion13th144m/phantom-manager/internal/winfs"
 )
 
 // Config is everything the handlers need to know about the environment.
@@ -43,8 +51,164 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/jobs", s.handleJobStatus)
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 	mux.HandleFunc("GET /api/status", s.handleStatus)
+	mux.HandleFunc("POST /api/jobs/cancel", s.handleJobCancel)
+	mux.HandleFunc("GET /api/repo", s.handleRepo)
+	mux.HandleFunc("POST /api/repo/clone", s.handleRepoClone)
+	mux.HandleFunc("POST /api/repo/pull", s.handleRepoPull)
+	mux.HandleFunc("POST /api/repo/fetch", s.handleRepoFetch)
+	mux.HandleFunc("POST /api/repo/checkout", s.handleRepoCheckout)
+	mux.HandleFunc("POST /api/repo/unpin", s.handleRepoUnpin)
+	mux.HandleFunc("GET /api/env", s.handleEnvGet)
+	mux.HandleFunc("POST /api/env", s.handleEnvSave)
+	mux.HandleFunc("GET /api/lan-addresses", s.handleLanAddresses)
 	mux.Handle("GET /", http.FileServer(http.FS(s.web)))
 	return mux
+}
+
+// handleEnvGet returns the current .env.docker values, or the WSL defaults when
+// the file has not been generated yet.
+func (s *Server) handleEnvGet(w http.ResponseWriter, r *http.Request) {
+	settings, found, err := envfile.Load(s.cfg.ReleaseDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"settings":  settings,
+		"exists":    found,
+		"path":      envfile.Path(s.cfg.ReleaseDir),
+		"hasSample": fileExists(envfile.SamplePath(s.cfg.ReleaseDir)),
+	})
+}
+
+// handleEnvSave writes .env.docker. It is refused while a job runs: the values
+// here decide what a running compose project has mounted.
+func (s *Server) handleEnvSave(w http.ResponseWriter, r *http.Request) {
+	if s.jobs.Busy() {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": jobs.ErrBusy.Error()})
+		return
+	}
+	var settings envfile.Settings
+	if err := decodeJSON(r, &settings); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := envfile.Save(s.cfg.ReleaseDir, settings); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	path := envfile.Path(s.cfg.ReleaseDir)
+	s.jobs.Announce(path + " を保存しました")
+	s.jobs.Announce(fmt.Sprintf("取込先 %s / 展開先 %s を作成しました", settings.SrcDir, settings.DataDir))
+	writeJSON(w, http.StatusOK, map[string]any{"path": path, "settings": settings})
+}
+
+// handleLanAddresses offers the Windows host's LAN addresses for
+// PHANTOM_PUBLIC_URL, for when phantom should be reachable from other machines.
+func (s *Server) handleLanAddresses(w http.ResponseWriter, r *http.Request) {
+	adapters, err := winfs.New().LanIPv4(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"adapters": adapters})
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// repo returns a handle on the phantom-release checkout.
+func (s *Server) repo() *gitrepo.Repo { return gitrepo.New(s.cfg.ReleaseDir) }
+
+func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.repo().Status(r.Context()))
+}
+
+func (s *Server) handleRepoClone(w http.ResponseWriter, r *http.Request) {
+	repo := s.repo()
+	s.startJob(w, "phantom-release のクローン", func(ctx context.Context, l *jobs.Log) error {
+		return repo.Clone(ctx, gitrepo.DefaultURL, lineSink(l))
+	})
+}
+
+func (s *Server) handleRepoPull(w http.ResponseWriter, r *http.Request) {
+	repo := s.repo()
+	s.startJob(w, "phantom-release の更新", func(ctx context.Context, l *jobs.Log) error {
+		return repo.Pull(ctx, lineSink(l))
+	})
+}
+
+func (s *Server) handleRepoFetch(w http.ResponseWriter, r *http.Request) {
+	repo := s.repo()
+	s.startJob(w, "バージョン一覧の取得", func(ctx context.Context, l *jobs.Log) error {
+		return repo.FetchTags(ctx, lineSink(l))
+	})
+}
+
+func (s *Server) handleRepoCheckout(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Tag string `json:"tag"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	repo := s.repo()
+	s.startJob(w, "バージョン "+body.Tag+" のチェックアウト", func(ctx context.Context, l *jobs.Log) error {
+		return repo.Checkout(ctx, body.Tag, lineSink(l))
+	})
+}
+
+// handleRepoUnpin leaves a checked-out tag. Without it, pinning a version is a
+// one-way door: pull refuses to run on a detached HEAD.
+func (s *Server) handleRepoUnpin(w http.ResponseWriter, r *http.Request) {
+	repo := s.repo()
+	s.startJob(w, "最新ブランチへの切り替え", func(ctx context.Context, l *jobs.Log) error {
+		return repo.CheckoutDefaultBranch(ctx, lineSink(l))
+	})
+}
+
+func (s *Server) handleJobCancel(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"cancelled": s.jobs.Cancel()})
+}
+
+// startJob hands work to the job manager and answers the caller. A busy manager
+// is a 409 rather than a queued request: the operations here change the same
+// checkout and compose project, so running two is never what was meant.
+func (s *Server) startJob(w http.ResponseWriter, name string, fn func(context.Context, *jobs.Log) error) {
+	st, err := s.jobs.Start(name, fn)
+	if errors.Is(err, jobs.ErrBusy) {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":   jobs.ErrBusy.Error(),
+			"running": st.Name,
+		})
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, st)
+}
+
+// lineSink adapts the runner's output callback to the job log.
+func lineSink(l *jobs.Log) func(runner.Line) {
+	return func(line runner.Line) { l.Emit(line.Kind, line.Text) }
+}
+
+func decodeJSON(r *http.Request, v any) error {
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return fmt.Errorf("リクエストを解釈できませんでした: %w", err)
+	}
+	return nil
+}
+
+func writeError(w http.ResponseWriter, status int, err error) {
+	writeJSON(w, status, map[string]any{"error": err.Error()})
 }
 
 // handleStatus runs the environment checks. The old manager ran these on Shown

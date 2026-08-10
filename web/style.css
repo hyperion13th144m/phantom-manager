@@ -117,6 +117,40 @@ main { padding: 16px; display: grid; gap: 16px; }
 }
 .muted { color: var(--muted); font-size: 12.5px; }
 
+.summary { padding: 4px 0 8px; }
+
+.form {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+.form label { color: var(--muted); }
+.form input {
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  width: 100%;
+}
+.form input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.field-row { display: flex; gap: 8px; align-items: center; }
+.field-row input { flex: 1; }
+
+.job { color: var(--muted); font-size: 12.5px; }
+
+select {
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  min-width: 200px;
+}
+
 button {
   font: inherit;
   padding: 5px 12px;

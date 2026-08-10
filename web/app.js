@@ -8,10 +8,13 @@ const logEl = document.getElementById("log");
 const connEl = document.getElementById("conn");
 const versionEl = document.getElementById("version");
 const followEl = document.getElementById("follow");
+const jobEl = document.getElementById("job");
+const cancelEl = document.getElementById("cancel");
 
 // Events are replayed from the server's ring buffer on every (re)connect, so
 // track the highest sequence seen to avoid printing duplicates after a reload.
 let lastSeq = 0;
+let busy = false;
 
 function appendEvent(ev) {
   if (ev.seq <= lastSeq) return;
@@ -32,6 +35,26 @@ function appendEvent(ev) {
   logEl.append(line);
 
   if (followEl.checked) logEl.scrollTop = logEl.scrollHeight;
+
+  // A finished job changes the repository and the environment, so refresh what
+  // the panels show rather than making the user press 再チェック.
+  if (ev.kind === "start") setBusy(true, ev.text);
+  if (ev.kind === "end") {
+    setBusy(false, "");
+    refreshAll();
+  }
+}
+
+// setBusy is the web counterpart of the old manager's SetBusy: while an
+// operation runs, nothing else may be started. The server refuses concurrent
+// work regardless; this only keeps the UI honest about it.
+function setBusy(value, name) {
+  busy = value;
+  jobEl.textContent = value ? `実行中: ${name}` : "";
+  cancelEl.hidden = !value;
+  for (const el of document.querySelectorAll("[data-op], #save-env, #use-lan, #recheck")) {
+    el.disabled = value;
+  }
 }
 
 function setConnected(ok) {
@@ -51,6 +74,23 @@ function connect() {
   };
   // EventSource reconnects on its own; just reflect the state.
   es.onerror = () => setConnected(false);
+}
+
+// --- 共通 -------------------------------------------------------------------
+
+async function api(path, options) {
+  const r = await fetch(path, options);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error ?? `${r.status} ${r.statusText}`);
+  return body;
+}
+
+async function post(path, payload) {
+  return api(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload === undefined ? "{}" : JSON.stringify(payload),
+  });
 }
 
 // --- 環境チェック -----------------------------------------------------------
@@ -93,27 +133,148 @@ function renderChecks(status) {
 }
 
 async function loadStatus() {
-  recheckEl.disabled = true;
   try {
-    const r = await fetch("/api/status");
-    renderChecks(await r.json());
+    renderChecks(await api("/api/status"));
   } catch (e) {
-    checkedAtEl.textContent = `チェックに失敗しました: ${e}`;
-  } finally {
-    recheckEl.disabled = false;
+    checkedAtEl.textContent = `チェックに失敗しました: ${e.message}`;
   }
 }
 
 recheckEl.addEventListener("click", loadStatus);
 
+// --- バージョン -------------------------------------------------------------
+
+const repoSummaryEl = document.getElementById("repo-summary");
+const tagEl = document.getElementById("tag");
+
+function describeRepo(repo) {
+  if (!repo.exists) return `未取得（${repo.dir}）`;
+  if (!repo.ready) return `${repo.dir} は phantom-release ではありません`;
+  const where = repo.detached
+    ? `バージョン ${repo.tag || repo.describe || repo.head}（固定）`
+    : `ブランチ ${repo.branch} @ ${repo.head}`;
+  return repo.dirty ? `${where} — ローカルに変更あり` : where;
+}
+
+async function loadRepo() {
+  try {
+    const repo = await api("/api/repo");
+    repoSummaryEl.textContent = describeRepo(repo);
+
+    const selected = tagEl.value;
+    tagEl.replaceChildren();
+    for (const tag of repo.tags ?? []) {
+      const opt = document.createElement("option");
+      opt.value = tag;
+      opt.textContent = tag;
+      tagEl.append(opt);
+    }
+    if (!repo.tags?.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "（バージョン一覧を取得してください）";
+      tagEl.append(opt);
+    }
+    tagEl.value = repo.tag || selected || tagEl.options[0]?.value || "";
+  } catch (e) {
+    repoSummaryEl.textContent = `取得に失敗しました: ${e.message}`;
+  }
+}
+
+const REPO_OPS = {
+  clone: () => post("/api/repo/clone"),
+  pull: () => post("/api/repo/pull"),
+  fetch: () => post("/api/repo/fetch"),
+  checkout: () => {
+    if (!tagEl.value) throw new Error("バージョンを選択してください");
+    return post("/api/repo/checkout", { tag: tagEl.value });
+  },
+  // Checking out a tag detaches HEAD, and pull refuses to run there. This is
+  // the way back.
+  unpin: () => post("/api/repo/unpin"),
+};
+
+for (const button of document.querySelectorAll("[data-op]")) {
+  button.addEventListener("click", async () => {
+    try {
+      await REPO_OPS[button.dataset.op]();
+    } catch (e) {
+      repoSummaryEl.textContent = e.message;
+    }
+  });
+}
+
+cancelEl.addEventListener("click", () => post("/api/jobs/cancel").catch(() => {}));
+
+// --- データディレクトリ -----------------------------------------------------
+
+const envStatusEl = document.getElementById("env-status");
+const fields = ["srcDir", "dataDir", "httpPort", "publicUrl"].map((id) =>
+  document.getElementById(id),
+);
+
+async function loadEnv() {
+  try {
+    const { settings, exists, path } = await api("/api/env");
+    document.getElementById("srcDir").value = settings.srcDir;
+    document.getElementById("dataDir").value = settings.dataDir;
+    document.getElementById("httpPort").value = settings.httpPort;
+    document.getElementById("publicUrl").value = settings.publicUrl;
+    envStatusEl.textContent = exists ? path : `未作成（保存すると ${path} に書き出します）`;
+  } catch (e) {
+    envStatusEl.textContent = `読み込みに失敗しました: ${e.message}`;
+  }
+}
+
+document.getElementById("save-env").addEventListener("click", async () => {
+  envStatusEl.textContent = "保存中…";
+  try {
+    const { path } = await post("/api/env", {
+      srcDir: document.getElementById("srcDir").value.trim(),
+      dataDir: document.getElementById("dataDir").value.trim(),
+      httpPort: Number(document.getElementById("httpPort").value),
+      publicUrl: document.getElementById("publicUrl").value.trim(),
+    });
+    envStatusEl.textContent = `保存しました: ${path}`;
+    loadStatus();
+  } catch (e) {
+    envStatusEl.textContent = `保存に失敗しました: ${e.message}`;
+  }
+});
+
+// PHANTOM_PUBLIC_URL defaults to localhost, which is right when phantom is used
+// from this PC only. Reaching it from another machine on the LAN needs the
+// Windows host's address, which only Windows can tell us.
+document.getElementById("use-lan").addEventListener("click", async () => {
+  try {
+    const { adapters } = await api("/api/lan-addresses");
+    if (!adapters?.length) {
+      envStatusEl.textContent = "LAN アドレスを取得できませんでした";
+      return;
+    }
+    const port = document.getElementById("httpPort").value || 8080;
+    document.getElementById("publicUrl").value = `http://${adapters[0].ip}:${port}`;
+    envStatusEl.textContent = `${adapters[0].alias} の ${adapters[0].ip} を使います（保存すると反映されます）`;
+  } catch (e) {
+    envStatusEl.textContent = `LAN アドレスの取得に失敗しました: ${e.message}`;
+  }
+});
+
+// --- 起動 -------------------------------------------------------------------
+
 async function loadHealth() {
   try {
-    const r = await fetch("/api/health");
-    const h = await r.json();
+    const h = await api("/api/health");
     versionEl.textContent = h.version;
   } catch {
     versionEl.textContent = "";
   }
+}
+
+function refreshAll() {
+  loadStatus();
+  loadRepo();
+  loadEnv();
 }
 
 document.getElementById("clear").addEventListener("click", () => {
@@ -122,5 +283,5 @@ document.getElementById("clear").addEventListener("click", () => {
 
 setConnected(false);
 loadHealth();
-loadStatus();
+refreshAll();
 connect();
