@@ -68,9 +68,24 @@ func TestRenderUsesWindowsLineEndings(t *testing.T) {
 // one locked file on a network share into a run that never ends.
 func TestRenderLimitsRetries(t *testing.T) {
 	out := Render(spec())
-	for _, flag := range []string{"/E", "/R:2", "/W:5", "/TEE"} {
+	for _, flag := range []string{"/E", "/MT:16", "/R:2", "/W:5", "/TEE"} {
 		if !strings.Contains(out, flag) {
 			t.Errorf("%s missing from the robocopy command:\n%s", flag, out)
+		}
+	}
+}
+
+// Every file crosses the 9p bridge to \\wsl.localhost, where per-file latency
+// dominates. Copying single-threaded leaves that latency unoverlapped.
+func TestRenderCopiesInParallel(t *testing.T) {
+	out := Render(spec())
+	if !strings.Contains(out, "/MT:") {
+		t.Errorf("no /MT in the robocopy command:\n%s", out)
+	}
+	// /MT is incompatible with /IPG and /EFSRAW; neither may creep in.
+	for _, bad := range []string{"/IPG", "/EFSRAW"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("%s cannot be combined with /MT", bad)
 		}
 	}
 }
