@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"golang.org/x/text/encoding/japanese"
+
+	"github.com/hyperion13th144m/phantom-manager/internal/wslenv"
 )
 
 func spec() Spec {
@@ -163,7 +165,13 @@ func TestNormalizePathKeepsQuotingIntact(t *testing.T) {
 	}
 }
 
+// Generate resolves the destination through wslpath and $WSL_DISTRO_NAME,
+// neither of which exists off WSL. The parts that do not need the environment —
+// Render, Encode, NormalizePath — are covered above and run everywhere.
 func TestGenerateWritesTheScript(t *testing.T) {
+	if !wslenv.IsWSL() {
+		t.Skip("WSL 環境でのみ実行できます")
+	}
 	batPath := filepath.Join(t.TempDir(), "mirror.bat")
 	res, err := Generate(batPath, `P:\jpodata`, "/home/yuichiro/phantom/data/src")
 	if err != nil {
