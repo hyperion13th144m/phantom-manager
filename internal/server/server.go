@@ -14,14 +14,18 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/hyperion13th144m/phantom-manager/internal/envcheck"
 	"github.com/hyperion13th144m/phantom-manager/internal/envfile"
 	"github.com/hyperion13th144m/phantom-manager/internal/gitrepo"
 	"github.com/hyperion13th144m/phantom-manager/internal/jobs"
+	"github.com/hyperion13th144m/phantom-manager/internal/mirror"
+	"github.com/hyperion13th144m/phantom-manager/internal/paths"
 	"github.com/hyperion13th144m/phantom-manager/internal/runner"
 	"github.com/hyperion13th144m/phantom-manager/internal/winfs"
+	"github.com/hyperion13th144m/phantom-manager/internal/wslenv"
 )
 
 // Config is everything the handlers need to know about the environment.
@@ -61,6 +65,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/env", s.handleEnvGet)
 	mux.HandleFunc("POST /api/env", s.handleEnvSave)
 	mux.HandleFunc("GET /api/lan-addresses", s.handleLanAddresses)
+	mux.HandleFunc("GET /api/browse", s.handleBrowse)
+	mux.HandleFunc("POST /api/mirror-script", s.handleMirrorScript)
+	mux.HandleFunc("POST /api/open", s.handleOpen)
 	mux.Handle("GET /", http.FileServer(http.FS(s.web)))
 	return mux
 }
@@ -112,6 +119,108 @@ func (s *Server) handleLanAddresses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"adapters": adapters})
+}
+
+// handleBrowse walks the Windows filesystem for the source picker. With no
+// path it lists drives; with one it lists that directory's subdirectories.
+//
+// This browses the Windows namespace rather than /mnt because mapped network
+// drives are not in /mnt at all, and a network share is where this shop's data
+// actually lives.
+func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	client := winfs.New()
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+
+	if path == "" {
+		drives, err := client.Drives(r.Context())
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"path": "", "drives": drives})
+		return
+	}
+
+	entries, err := client.ListDirs(r.Context(), path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	exists, err := client.Exists(r.Context(), path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path":    path,
+		"exists":  exists,
+		"parent":  winfs.Parent(path),
+		"entries": entries,
+	})
+}
+
+// handleMirrorScript generates the robocopy .bat. The source is validated
+// against Windows first: a path the manager cannot see is a path robocopy will
+// fail on, and finding that out now beats finding it out from a batch window
+// that has already closed.
+func (s *Server) handleMirrorScript(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Source string `json:"source"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	settings, _, err := envfile.Load(s.cfg.ReleaseDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	ok, err := winfs.New().Exists(r.Context(), body.Source)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("取込元フォルダが見つかりません: %s", body.Source))
+		return
+	}
+
+	// The destination has to exist before robocopy writes into it, and it must
+	// be owned by uid 1000 rather than created later by docker as root.
+	if err := os.MkdirAll(settings.SrcDir, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	res, err := mirror.Generate(paths.DefaultMirrorBat(), body.Source, settings.SrcDir)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.jobs.Announce("取込スクリプトを生成しました: " + res.UNC)
+	s.jobs.Announce(fmt.Sprintf("%s → %s", res.Source, res.Dest))
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleOpen asks Windows to open a path or URL. Failure is reported rather
+// than raised: interop can be switched off, and the UI then shows the path for
+// the user to open themselves.
+func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Target string `json:"target"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := wslenv.Open(body.Target); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"opened": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"opened": true})
 }
 
 func fileExists(path string) bool {

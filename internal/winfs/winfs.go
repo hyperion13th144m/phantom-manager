@@ -170,6 +170,39 @@ func (c *Client) LanIPv4(ctx context.Context) ([]Adapter, error) {
 	return out, nil
 }
 
+// Parent returns the directory containing a Windows path, or "" when the path
+// is already a root. "" is what the picker uses to mean "show the drive list",
+// so a drive root and a share root both climb back to it.
+//
+// This is string work rather than a PowerShell call: it happens on every click
+// in the picker, and each call costs half a second.
+func Parent(winPath string) string {
+	p := strings.TrimRight(strings.TrimSpace(winPath), `\`)
+	if p == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(p, `\\`) {
+		// \\server\share is the shallowest a UNC path goes.
+		parts := strings.Split(strings.TrimPrefix(p, `\\`), `\`)
+		if len(parts) <= 2 {
+			return ""
+		}
+		return `\\` + strings.Join(parts[:len(parts)-1], `\`)
+	}
+
+	i := strings.LastIndex(p, `\`)
+	if i < 0 {
+		return "" // a bare "C:" is already a root
+	}
+	head := p[:i]
+	// "C:\dir" climbs to "C:\", not to "C:".
+	if len(head) == 2 && head[1] == ':' {
+		return head + `\`
+	}
+	return head
+}
+
 // run executes a script and decodes its JSON output.
 func (c *Client) run(ctx context.Context, script string, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)

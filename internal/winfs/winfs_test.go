@@ -61,6 +61,25 @@ func TestValidatePathRejectsControlCharacters(t *testing.T) {
 	}
 }
 
+func TestParent(t *testing.T) {
+	cases := map[string]string{
+		`C:\Windows\System32`:            `C:\Windows`,
+		`C:\Windows`:                     `C:\`,
+		`C:\`:                            ``, // a root climbs back to the drive list
+		`C:`:                             ``,
+		`P:\jpodata\raw`:                 `P:\jpodata`,
+		`\\192.168.11.250\patent-bi\a\b`: `\\192.168.11.250\patent-bi\a`,
+		`\\192.168.11.250\patent-bi\a`:   `\\192.168.11.250\patent-bi`,
+		`\\192.168.11.250\patent-bi`:     ``, // a share root is as shallow as UNC goes
+		``:                               ``,
+	}
+	for in, want := range cases {
+		if got := Parent(in); got != want {
+			t.Errorf("Parent(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func requireWindows(t *testing.T) *Client {
 	t.Helper()
 	if !wslenv.IsWSL() {

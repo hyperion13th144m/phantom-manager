@@ -67,6 +67,37 @@
   </section>
 
   <section class="panel">
+    <h2>取込スクリプトの作成</h2>
+    <p class="muted note">
+      Windows のフォルダから取込先へコピーする .bat を生成します。
+      コピー自体は Windows 側で robocopy が行うため、生成後にエクスプローラから実行してください。
+    </p>
+
+    <div class="field-row">
+      <label for="source">取込元</label>
+      <input type="text" id="source" spellcheck="false" placeholder="P:\jpodata または \\server\share\dir">
+      <button type="button" id="browse-open">フォルダを選ぶ</button>
+    </div>
+
+    <div id="picker" class="picker" hidden>
+      <div class="picker-bar">
+        <button type="button" id="picker-up">上へ</button>
+        <span id="picker-path" class="mono"></span>
+        <span class="grow"></span>
+        <button type="button" id="picker-choose">ここを選ぶ</button>
+        <button type="button" id="picker-close">閉じる</button>
+      </div>
+      <ul id="picker-list" class="picker-list"></ul>
+    </div>
+
+    <div class="panel-actions">
+      <button type="button" id="make-script">取込スクリプトを作成</button>
+      <span id="mirror-status" class="muted"></span>
+    </div>
+    <div id="mirror-result" class="result" hidden></div>
+  </section>
+
+  <section class="panel">
     <h2>ログ</h2>
     <div id="log" class="log" aria-live="polite"></div>
     <div class="log-actions">

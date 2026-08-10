@@ -142,6 +142,64 @@ main { padding: 16px; display: grid; gap: 16px; }
 
 .job { color: var(--muted); font-size: 12.5px; }
 
+.note { margin: 0 0 10px; line-height: 1.6; }
+.mono { font-family: "Cascadia Mono", "Consolas", "Noto Sans Mono", monospace; font-size: 12.5px; }
+
+.field-row label { color: var(--muted); min-width: 60px; }
+.field-row > input[type="text"] {
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.picker {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.picker-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #f0f1f4;
+  border-bottom: 1px solid var(--border);
+}
+.picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.picker-list li { display: block; }
+.picker-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 5px 8px;
+  border-radius: 4px;
+}
+.picker-list button:hover { background: #e8eefc; color: inherit; }
+.picker-list .empty { padding: 8px; color: var(--muted); }
+
+.result {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 4px 12px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #f0f1f4;
+  border-radius: 6px;
+}
+.result dt { color: var(--muted); }
+.result dd { margin: 0; word-break: break-all; }
+.result button { grid-column: 1 / -1; justify-self: start; margin-top: 6px; background: #fff; }
+
 select {
   font: inherit;
   padding: 5px 8px;

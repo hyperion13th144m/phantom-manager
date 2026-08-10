@@ -52,7 +52,9 @@ function setBusy(value, name) {
   busy = value;
   jobEl.textContent = value ? `実行中: ${name}` : "";
   cancelEl.hidden = !value;
-  for (const el of document.querySelectorAll("[data-op], #save-env, #use-lan, #recheck")) {
+  for (const el of document.querySelectorAll(
+    "[data-op], #save-env, #use-lan, #recheck, #make-script, #browse-open",
+  )) {
     el.disabled = value;
   }
 }
@@ -257,6 +259,121 @@ document.getElementById("use-lan").addEventListener("click", async () => {
     envStatusEl.textContent = `${adapters[0].alias} の ${adapters[0].ip} を使います（保存すると反映されます）`;
   } catch (e) {
     envStatusEl.textContent = `LAN アドレスの取得に失敗しました: ${e.message}`;
+  }
+});
+
+// --- 取込スクリプト ---------------------------------------------------------
+
+// The picker walks the Windows filesystem, not /mnt. Mapped network drives —
+// which is where the source data lives here — do not appear under /mnt at all,
+// and robocopy runs in the Windows session anyway, so Windows paths are the
+// only ones that mean anything in the generated script.
+
+const sourceEl = document.getElementById("source");
+const pickerEl = document.getElementById("picker");
+const pickerPathEl = document.getElementById("picker-path");
+const pickerListEl = document.getElementById("picker-list");
+const mirrorStatusEl = document.getElementById("mirror-status");
+const mirrorResultEl = document.getElementById("mirror-result");
+
+let pickerPath = "";
+let pickerParent = "";
+
+async function browse(path) {
+  pickerListEl.replaceChildren();
+  pickerPathEl.textContent = path || "（ドライブ）";
+  mirrorStatusEl.textContent = "読み込み中…";
+  try {
+    const data = await api(`/api/browse?path=${encodeURIComponent(path ?? "")}`);
+    pickerPath = data.path ?? "";
+    pickerParent = data.parent ?? "";
+
+    const rows = data.drives
+      ? data.drives.map((d) => ({
+          // A mapped drive is shown with the share behind it, so P: is not an
+          // unexplained letter.
+          label: d.network ? `${d.name}: — ${d.unc}` : `${d.name}:`,
+          path: d.root,
+        }))
+      : data.entries.map((e) => ({ label: e.name, path: e.path }));
+
+    if (!rows.length) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = "サブフォルダはありません";
+      pickerListEl.append(li);
+    }
+    for (const row of rows) {
+      const li = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = row.label;
+      button.addEventListener("click", () => browse(row.path));
+      li.append(button);
+      pickerListEl.append(li);
+    }
+    document.getElementById("picker-up").disabled = !path;
+    document.getElementById("picker-choose").disabled = !pickerPath;
+    mirrorStatusEl.textContent = "";
+  } catch (e) {
+    mirrorStatusEl.textContent = `フォルダを読み込めませんでした: ${e.message}`;
+  }
+}
+
+document.getElementById("browse-open").addEventListener("click", () => {
+  pickerEl.hidden = false;
+  browse(sourceEl.value.trim() || "");
+});
+document.getElementById("picker-close").addEventListener("click", () => {
+  pickerEl.hidden = true;
+});
+document.getElementById("picker-up").addEventListener("click", () => browse(pickerParent));
+document.getElementById("picker-choose").addEventListener("click", () => {
+  sourceEl.value = pickerPath;
+  pickerEl.hidden = true;
+});
+
+function renderMirrorResult(res) {
+  mirrorResultEl.hidden = false;
+  mirrorResultEl.replaceChildren();
+
+  const rows = [
+    ["スクリプト", res.unc],
+    ["取込元", res.source],
+    ["取込先", res.dest],
+    ["ログ", res.log],
+    ["対象", res.patterns.join(" ")],
+  ];
+  for (const [label, value] of rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.className = "mono";
+    dd.textContent = value;
+    mirrorResultEl.append(dt, dd);
+  }
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.textContent = "保存先を開く";
+  open.addEventListener("click", async () => {
+    const r = await post("/api/open", { target: res.unc.replace(/\\[^\\]+$/, "") });
+    // Interop can be switched off entirely, so the path stays on screen either
+    // way for the user to open by hand.
+    if (!r.opened) mirrorStatusEl.textContent = `エクスプローラを開けませんでした: ${r.error}`;
+  });
+  mirrorResultEl.append(open);
+}
+
+document.getElementById("make-script").addEventListener("click", async () => {
+  mirrorStatusEl.textContent = "作成中…";
+  mirrorResultEl.hidden = true;
+  try {
+    const res = await post("/api/mirror-script", { source: sourceEl.value.trim() });
+    mirrorStatusEl.textContent = "作成しました。エクスプローラから実行してください。";
+    renderMirrorResult(res);
+  } catch (e) {
+    mirrorStatusEl.textContent = `作成に失敗しました: ${e.message}`;
   }
 });
 
