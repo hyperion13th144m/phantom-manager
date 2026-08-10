@@ -106,8 +106,9 @@ func (c *Client) Build(ctx context.Context, log func(runner.Line)) error {
 //
 // Naming them explicitly is not an optimisation. A plain `compose pull` also
 // tries to pull es, whose image is built locally and exists in no registry, and
-// the whole command fails with "pull access denied". Compose grew
-// --ignore-buildable for this in 2.22, but the Docker Desktop here ships 2.16.
+// the whole command fails with "pull access denied" — confirmed on both 2.16
+// and 5.3.1. Compose grew --ignore-buildable for this in 2.22, but listing the
+// services works the same on every version and needs no feature detection.
 func (c *Client) Pull(ctx context.Context, log func(runner.Line)) error {
 	names, err := c.split(ctx, false)
 	if err != nil {
