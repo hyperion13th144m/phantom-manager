@@ -98,6 +98,25 @@
   </section>
 
   <section class="panel">
+    <h2>サービス</h2>
+    <div class="panel-actions">
+      <button type="button" data-compose="build">es をビルド</button>
+      <button type="button" data-compose="pull">イメージを取得</button>
+      <button type="button" data-compose="up">起動</button>
+      <button type="button" data-compose="down">停止</button>
+      <button type="button" id="refresh-ps">状態を更新</button>
+      <a id="phantom-url" class="url" href="#" target="_blank" rel="noreferrer"></a>
+    </div>
+    <div id="compose-error" class="muted"></div>
+    <table class="services">
+      <thead>
+        <tr><th>サービス</th><th>状態</th><th>Status</th><th>ポート</th></tr>
+      </thead>
+      <tbody id="services"></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
     <h2>ログ</h2>
     <div id="log" class="log" aria-live="polite"></div>
     <div class="log-actions">

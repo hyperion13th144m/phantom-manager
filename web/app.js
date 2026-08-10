@@ -53,7 +53,7 @@ function setBusy(value, name) {
   jobEl.textContent = value ? `実行中: ${name}` : "";
   cancelEl.hidden = !value;
   for (const el of document.querySelectorAll(
-    "[data-op], #save-env, #use-lan, #recheck, #make-script, #browse-open",
+    "[data-op], [data-compose], #save-env, #use-lan, #recheck, #make-script, #browse-open",
   )) {
     el.disabled = value;
   }
@@ -377,6 +377,64 @@ document.getElementById("make-script").addEventListener("click", async () => {
   }
 });
 
+// --- サービス ---------------------------------------------------------------
+
+const servicesEl = document.getElementById("services");
+const composeErrorEl = document.getElementById("compose-error");
+const phantomUrlEl = document.getElementById("phantom-url");
+
+async function loadServices() {
+  try {
+    const { services, error, url } = await api("/api/compose/ps");
+    composeErrorEl.textContent = error ?? "";
+
+    phantomUrlEl.textContent = url ?? "";
+    phantomUrlEl.href = url ?? "#";
+    phantomUrlEl.hidden = !url;
+
+    servicesEl.replaceChildren();
+    if (!services.length) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 4;
+      td.className = "muted";
+      td.textContent = error ? "" : "コンテナはありません";
+      tr.append(td);
+      servicesEl.append(tr);
+      return;
+    }
+    for (const svc of services) {
+      const tr = document.createElement("tr");
+      for (const [value, cls] of [
+        [svc.name, "name"],
+        [svc.health ? `${svc.state} (${svc.health})` : svc.state, svc.running ? "s-ok" : "s-ng"],
+        [svc.status, "muted"],
+        [svc.ports, "mono"],
+      ]) {
+        const td = document.createElement("td");
+        td.className = cls;
+        td.textContent = value ?? "";
+        tr.append(td);
+      }
+      servicesEl.append(tr);
+    }
+  } catch (e) {
+    composeErrorEl.textContent = `状態を取得できませんでした: ${e.message}`;
+  }
+}
+
+for (const button of document.querySelectorAll("[data-compose]")) {
+  button.addEventListener("click", async () => {
+    try {
+      await post(`/api/compose/${button.dataset.compose}`);
+    } catch (e) {
+      composeErrorEl.textContent = e.message;
+    }
+  });
+}
+
+document.getElementById("refresh-ps").addEventListener("click", loadServices);
+
 // --- 起動 -------------------------------------------------------------------
 
 async function loadHealth() {
@@ -392,6 +450,7 @@ function refreshAll() {
   loadStatus();
   loadRepo();
   loadEnv();
+  loadServices();
 }
 
 document.getElementById("clear").addEventListener("click", () => {

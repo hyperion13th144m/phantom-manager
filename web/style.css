@@ -200,6 +200,20 @@ main { padding: 16px; display: grid; gap: 16px; }
 .result dd { margin: 0; word-break: break-all; }
 .result button { grid-column: 1 / -1; justify-self: start; margin-top: 6px; background: #fff; }
 
+.services { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.services th, .services td {
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: baseline;
+}
+.services th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+.services td.name { font-weight: 600; }
+.services td.s-ok { color: var(--ok); }
+.services td.s-ng { color: var(--muted); }
+
+.url { color: var(--accent); margin-left: auto; }
+
 select {
   font: inherit;
   padding: 5px 8px;

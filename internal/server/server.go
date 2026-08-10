@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hyperion13th144m/phantom-manager/internal/compose"
 	"github.com/hyperion13th144m/phantom-manager/internal/envcheck"
 	"github.com/hyperion13th144m/phantom-manager/internal/envfile"
 	"github.com/hyperion13th144m/phantom-manager/internal/gitrepo"
@@ -68,6 +69,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/browse", s.handleBrowse)
 	mux.HandleFunc("POST /api/mirror-script", s.handleMirrorScript)
 	mux.HandleFunc("POST /api/open", s.handleOpen)
+	mux.HandleFunc("GET /api/compose/ps", s.handleComposePs)
+	mux.HandleFunc("POST /api/compose/{op}", s.handleComposeOp)
 	mux.Handle("GET /", http.FileServer(http.FS(s.web)))
 	return mux
 }
@@ -203,6 +206,53 @@ func (s *Server) handleMirrorScript(w http.ResponseWriter, r *http.Request) {
 	s.jobs.Announce("取込スクリプトを生成しました: " + res.UNC)
 	s.jobs.Announce(fmt.Sprintf("%s → %s", res.Source, res.Dest))
 	writeJSON(w, http.StatusOK, res)
+}
+
+// handleComposePs returns the service table. It reports a failure as data
+// rather than an error status: "not started yet" and ".env.docker missing" are
+// normal states for this panel, not faults.
+func (s *Server) handleComposePs(w http.ResponseWriter, r *http.Request) {
+	settings, _, err := envfile.Load(s.cfg.ReleaseDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	body := map[string]any{"url": settings.PublicURL}
+
+	services, err := compose.New(s.cfg.ReleaseDir).Ps(r.Context())
+	if err != nil {
+		body["services"] = []compose.Service{}
+		body["error"] = err.Error()
+	} else {
+		body["services"] = services
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+// composeOps are the four operations the requirements ask for. build and pull
+// are separate because es is built from infra/es while the other twelve
+// services are digest-pinned images; a plain `compose pull` fails outright
+// trying to fetch the locally built one.
+var composeOps = map[string]struct {
+	label string
+	run   func(*compose.Client, context.Context, func(runner.Line)) error
+}{
+	"build": {"es のビルド", (*compose.Client).Build},
+	"pull":  {"イメージの取得", (*compose.Client).Pull},
+	"up":    {"サービスの起動", (*compose.Client).Up},
+	"down":  {"サービスの停止", (*compose.Client).Down},
+}
+
+func (s *Server) handleComposeOp(w http.ResponseWriter, r *http.Request) {
+	op, ok := composeOps[r.PathValue("op")]
+	if !ok {
+		writeError(w, http.StatusNotFound, fmt.Errorf("不明な操作です: %s", r.PathValue("op")))
+		return
+	}
+	client := compose.New(s.cfg.ReleaseDir)
+	s.startJob(w, op.label, func(ctx context.Context, l *jobs.Log) error {
+		return op.run(client, ctx, lineSink(l))
+	})
 }
 
 // handleOpen asks Windows to open a path or URL. Failure is reported rather
