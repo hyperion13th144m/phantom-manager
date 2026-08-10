@@ -261,13 +261,18 @@ func parsePs(out string) ([]Service, error) {
 
 // formatPorts renders the published ports.
 //
-// Compose 2.16 has no Ports field at all, so Publishers is the only source —
-// what the old manager treated as a fallback is the primary path here. A
-// published port appears once per address family, so the same mapping arrives
-// twice (0.0.0.0 and ::) and has to be collapsed.
+// Publishers is preferred over the Ports string on every compose version, even
+// though newer ones fill Ports in. A published port is listed once per address
+// family, and both representations carry the duplicate: compose 5.3.1 reports
+// Ports as "0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp" for a single mapping.
+// Building from Publishers lets the pair collapse to one entry, and gives the
+// same compact result on 2.16, which has no Ports field at all.
+//
+// The Ports string is still the fallback for the case where compose reports it
+// without any Publishers.
 func formatPorts(e psEntry) string {
-	if strings.TrimSpace(e.Ports) != "" {
-		return e.Ports
+	if len(e.Publishers) == 0 {
+		return strings.TrimSpace(e.Ports)
 	}
 	var parts []string
 	seen := map[string]bool{}

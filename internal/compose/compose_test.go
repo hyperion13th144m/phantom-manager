@@ -67,14 +67,29 @@ func TestFormatPortsCollapsesDuplicatePublishers(t *testing.T) {
 	}
 }
 
-// Newer compose fills Ports in directly; that string wins over rebuilding it.
-func TestFormatPortsPrefersThePortsField(t *testing.T) {
-	got, err := parsePs(linesOutput)
+// Newer compose fills Ports in, but with the address-family duplicate spelled
+// out: "0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp" for one mapping. Building
+// from Publishers instead collapses it, and reads the same on every version.
+func TestFormatPortsRebuildsFromPublishersEvenWhenPortsIsSet(t *testing.T) {
+	const dualStack = `{"Name":"phantom-nginx-1","Service":"nginx","State":"running","Status":"Up","Ports":"0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp","Publishers":[{"URL":"0.0.0.0","TargetPort":8080,"PublishedPort":8080,"Protocol":"tcp"},{"URL":"::","TargetPort":8080,"PublishedPort":8080,"Protocol":"tcp"}]}`
+	got, err := parsePs(dualStack)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[1].Ports != "0.0.0.0:8080->8080/tcp" {
-		t.Errorf("ports = %q, want the Ports field verbatim", got[1].Ports)
+	if got[0].Ports != "8080->8080/tcp" {
+		t.Errorf("ports = %q, want the collapsed 8080->8080/tcp", got[0].Ports)
+	}
+}
+
+// With no Publishers to rebuild from, whatever compose put in Ports stands.
+func TestFormatPortsFallsBackToThePortsField(t *testing.T) {
+	const noPublishers = `{"Name":"x-1","Service":"x","State":"running","Status":"Up","Ports":"8080/tcp","Publishers":null}`
+	got, err := parsePs(noPublishers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Ports != "8080/tcp" {
+		t.Errorf("ports = %q, want the Ports field verbatim", got[0].Ports)
 	}
 }
 
