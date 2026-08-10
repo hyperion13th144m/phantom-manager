@@ -1,82 +1,13 @@
 "use strict";
 
-// The log pane is the direct descendant of the old WinForms log box: every
-// command the manager runs and every line it produces ends up here, so a user
-// can paste the whole thing when something goes wrong.
-
-const logEl = document.getElementById("log");
-const connEl = document.getElementById("conn");
-const versionEl = document.getElementById("version");
-const followEl = document.getElementById("follow");
-const jobEl = document.getElementById("job");
-const cancelEl = document.getElementById("cancel");
-
-// Events are replayed from the server's ring buffer on every (re)connect, so
-// track the highest sequence seen to avoid printing duplicates after a reload.
-let lastSeq = 0;
-let busy = false;
-
-function appendEvent(ev) {
-  if (ev.seq <= lastSeq) return;
-  lastSeq = ev.seq;
-
-  const line = document.createElement("div");
-  line.className = `line k-${ev.kind}`;
-
-  const ts = document.createElement("span");
-  ts.className = "ts";
-  ts.textContent = ev.time;
-
-  const msg = document.createElement("span");
-  msg.className = "msg";
-  msg.textContent = ev.kind === "cmd" ? `> ${ev.text}` : ev.text;
-
-  line.append(ts, msg);
-  logEl.append(line);
-
-  if (followEl.checked) logEl.scrollTop = logEl.scrollHeight;
-
-  // A finished job changes the repository and the environment, so refresh what
-  // the panels show rather than making the user press 再チェック.
-  if (ev.kind === "start") setBusy(true, ev.text);
-  if (ev.kind === "end") {
-    setBusy(false, "");
-    refreshAll();
-  }
-}
-
-// setBusy is the web counterpart of the old manager's SetBusy: while an
-// operation runs, nothing else may be started. The server refuses concurrent
-// work regardless; this only keeps the UI honest about it.
-function setBusy(value, name) {
-  busy = value;
-  jobEl.textContent = value ? `実行中: ${name}` : "";
-  cancelEl.hidden = !value;
-  for (const el of document.querySelectorAll(
-    "[data-op], [data-compose], #save-env, #use-lan, #recheck, #make-script, #browse-open",
-  )) {
-    el.disabled = value;
-  }
-}
-
-function setConnected(ok) {
-  connEl.textContent = ok ? "接続中" : "未接続";
-  connEl.className = `badge ${ok ? "badge-on" : "badge-off"}`;
-}
-
-function connect() {
-  const es = new EventSource("/api/events");
-  es.onopen = () => setConnected(true);
-  es.onmessage = (e) => {
-    try {
-      appendEvent(JSON.parse(e.data));
-    } catch {
-      // A malformed frame should not kill the stream.
-    }
-  };
-  // EventSource reconnects on its own; just reflect the state.
-  es.onerror = () => setConnected(false);
-}
+// The whole UI is drawn from one /api/state snapshot. Fetching the panels
+// separately let them disagree — a service table from before an operation next
+// to a repository panel from after it — and each answer carried its own idea of
+// what was allowed. One request, one consistent picture.
+//
+// Which buttons are live is decided by the server and applied here. The old
+// manager's SetBusy did the same job in the form, but a web UI has second tabs
+// and reloads, so the rules are enforced server-side too; this is presentation.
 
 // --- 共通 -------------------------------------------------------------------
 
@@ -95,17 +26,71 @@ async function post(path, payload) {
   });
 }
 
-// --- 環境チェック -----------------------------------------------------------
+const $ = (id) => document.getElementById(id);
 
-const checksEl = document.getElementById("checks");
-const checkedAtEl = document.getElementById("checked-at");
-const recheckEl = document.getElementById("recheck");
+// --- ログ -------------------------------------------------------------------
+
+// Every command the manager runs and every line it produces lands here, so a
+// user can paste the whole thing when something goes wrong. Carried over from
+// the old WinForms log box.
+
+const logEl = $("log");
+const followEl = $("follow");
+
+// Events are replayed from the server's ring buffer on every reconnect, so
+// track the highest sequence seen to avoid printing duplicates after a reload.
+let lastSeq = 0;
+
+function appendEvent(ev) {
+  if (ev.seq <= lastSeq) return;
+  lastSeq = ev.seq;
+
+  const line = document.createElement("div");
+  line.className = `line k-${ev.kind}`;
+
+  const ts = document.createElement("span");
+  ts.className = "ts";
+  ts.textContent = ev.time;
+
+  const msg = document.createElement("span");
+  msg.className = "msg";
+  msg.textContent = ev.kind === "cmd" ? `> ${ev.text}` : ev.text;
+
+  line.append(ts, msg);
+  logEl.append(line);
+  if (followEl.checked) logEl.scrollTop = logEl.scrollHeight;
+
+  // A job boundary changes what is allowed and what the panels should show.
+  if (ev.kind === "start" || ev.kind === "end") refresh();
+}
+
+function setConnected(ok) {
+  const el = $("conn");
+  el.textContent = ok ? "接続中" : "未接続";
+  el.className = `badge ${ok ? "badge-on" : "badge-off"}`;
+}
+
+function connect() {
+  const es = new EventSource("/api/events");
+  es.onopen = () => setConnected(true);
+  es.onmessage = (e) => {
+    try {
+      appendEvent(JSON.parse(e.data));
+    } catch {
+      // A malformed frame should not kill the stream.
+    }
+  };
+  es.onerror = () => setConnected(false); // EventSource reconnects on its own
+}
+
+// --- 環境チェック -----------------------------------------------------------
 
 const STATE_MARK = { ok: "○", ng: "✕", warn: "!", unset: "—" };
 
-function renderChecks(status) {
-  checksEl.replaceChildren();
-  for (const c of status.checks) {
+function renderChecks(checks) {
+  const list = $("checks");
+  list.replaceChildren();
+  for (const c of checks.checks) {
     const li = document.createElement("li");
     li.className = `check s-${c.state}`;
 
@@ -122,167 +107,127 @@ function renderChecks(status) {
     detail.textContent = c.detail;
 
     li.append(mark, label, detail);
-
     if (c.hint) {
       const hint = document.createElement("div");
       hint.className = "hint";
       hint.textContent = c.hint;
       li.append(hint);
     }
-    checksEl.append(li);
+    list.append(li);
   }
-  checkedAtEl.textContent = new Date(status.checkedAt).toLocaleTimeString("ja-JP");
+  $("checked-at").textContent = new Date(checks.checkedAt).toLocaleTimeString("ja-JP");
 }
-
-async function loadStatus() {
-  try {
-    renderChecks(await api("/api/status"));
-  } catch (e) {
-    checkedAtEl.textContent = `チェックに失敗しました: ${e.message}`;
-  }
-}
-
-recheckEl.addEventListener("click", loadStatus);
 
 // --- バージョン -------------------------------------------------------------
-
-const repoSummaryEl = document.getElementById("repo-summary");
-const tagEl = document.getElementById("tag");
 
 function describeRepo(repo) {
   if (!repo.exists) return `未取得（${repo.dir}）`;
   if (!repo.ready) return `${repo.dir} は phantom-release ではありません`;
   const where = repo.detached
-    ? `バージョン ${repo.tag || repo.describe || repo.head}（固定）`
-    : `ブランチ ${repo.branch} @ ${repo.head}`;
+    ? `バージョン ${repo.tag || repo.describe || repo.head} を固定中`
+    : `ブランチ ${repo.branch} @ ${repo.head}${repo.tag ? `（${repo.tag}）` : ""}`;
   return repo.dirty ? `${where} — ローカルに変更あり` : where;
 }
 
-async function loadRepo() {
-  try {
-    const repo = await api("/api/repo");
-    repoSummaryEl.textContent = describeRepo(repo);
+function renderRepo(repo) {
+  $("repo-summary").textContent = describeRepo(repo);
 
-    const selected = tagEl.value;
-    tagEl.replaceChildren();
-    for (const tag of repo.tags ?? []) {
-      const opt = document.createElement("option");
-      opt.value = tag;
-      opt.textContent = tag;
-      tagEl.append(opt);
-    }
-    if (!repo.tags?.length) {
-      const opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = "（バージョン一覧を取得してください）";
-      tagEl.append(opt);
-    }
-    tagEl.value = repo.tag || selected || tagEl.options[0]?.value || "";
-  } catch (e) {
-    repoSummaryEl.textContent = `取得に失敗しました: ${e.message}`;
+  const tagEl = $("tag");
+  const keep = tagEl.value;
+  tagEl.replaceChildren();
+  for (const tag of repo.tags ?? []) {
+    const opt = document.createElement("option");
+    opt.value = tag;
+    opt.textContent = tag;
+    tagEl.append(opt);
   }
+  if (!repo.tags?.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "（バージョン一覧を取得してください）";
+    tagEl.append(opt);
+  }
+  tagEl.value = repo.tag || keep || tagEl.options[0]?.value || "";
 }
-
-const REPO_OPS = {
-  clone: () => post("/api/repo/clone"),
-  pull: () => post("/api/repo/pull"),
-  fetch: () => post("/api/repo/fetch"),
-  checkout: () => {
-    if (!tagEl.value) throw new Error("バージョンを選択してください");
-    return post("/api/repo/checkout", { tag: tagEl.value });
-  },
-  // Checking out a tag detaches HEAD, and pull refuses to run there. This is
-  // the way back.
-  unpin: () => post("/api/repo/unpin"),
-};
-
-for (const button of document.querySelectorAll("[data-op]")) {
-  button.addEventListener("click", async () => {
-    try {
-      await REPO_OPS[button.dataset.op]();
-    } catch (e) {
-      repoSummaryEl.textContent = e.message;
-    }
-  });
-}
-
-cancelEl.addEventListener("click", () => post("/api/jobs/cancel").catch(() => {}));
 
 // --- データディレクトリ -----------------------------------------------------
 
-const envStatusEl = document.getElementById("env-status");
-const fields = ["srcDir", "dataDir", "httpPort", "publicUrl"].map((id) =>
-  document.getElementById(id),
-);
+// The form is only refilled when it is not being edited, so a background
+// refresh cannot overwrite half-typed input.
+let envDirty = false;
 
-async function loadEnv() {
-  try {
-    const { settings, exists, path } = await api("/api/env");
-    document.getElementById("srcDir").value = settings.srcDir;
-    document.getElementById("dataDir").value = settings.dataDir;
-    document.getElementById("httpPort").value = settings.httpPort;
-    document.getElementById("publicUrl").value = settings.publicUrl;
-    envStatusEl.textContent = exists ? path : `未作成（保存すると ${path} に書き出します）`;
-  } catch (e) {
-    envStatusEl.textContent = `読み込みに失敗しました: ${e.message}`;
+function renderEnv(state) {
+  if (!envDirty) {
+    $("srcDir").value = state.env.srcDir;
+    $("dataDir").value = state.env.dataDir;
+    $("httpPort").value = state.env.httpPort;
+    $("publicUrl").value = state.env.publicUrl;
+  }
+  $("env-status").textContent = state.envSaved
+    ? state.envPath
+    : `未作成（保存すると ${state.envPath} に書き出します）`;
+}
+
+for (const id of ["srcDir", "dataDir", "httpPort", "publicUrl"]) {
+  $(id).addEventListener("input", () => {
+    envDirty = true;
+  });
+}
+
+// --- サービス ---------------------------------------------------------------
+
+function renderServices(state) {
+  $("compose-error").textContent = state.composeError ?? "";
+
+  const url = $("phantom-url");
+  const running = state.services.some((s) => s.running);
+  url.textContent = running ? state.publicUrl : "";
+  url.href = state.publicUrl || "#";
+  url.hidden = !running;
+
+  const body = $("services");
+  body.replaceChildren();
+  if (!state.services.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    td.className = "muted";
+    td.textContent = state.composeError ? "" : "コンテナはありません";
+    tr.append(td);
+    body.append(tr);
+    return;
+  }
+  for (const svc of state.services) {
+    const tr = document.createElement("tr");
+    for (const [value, cls] of [
+      [svc.name, "name"],
+      [svc.health ? `${svc.state} (${svc.health})` : svc.state, svc.running ? "s-ok" : "s-ng"],
+      [svc.status, "muted"],
+      [svc.ports, "mono"],
+    ]) {
+      const td = document.createElement("td");
+      td.className = cls;
+      td.textContent = value ?? "";
+      tr.append(td);
+    }
+    body.append(tr);
   }
 }
 
-document.getElementById("save-env").addEventListener("click", async () => {
-  envStatusEl.textContent = "保存中…";
-  try {
-    const { path } = await post("/api/env", {
-      srcDir: document.getElementById("srcDir").value.trim(),
-      dataDir: document.getElementById("dataDir").value.trim(),
-      httpPort: Number(document.getElementById("httpPort").value),
-      publicUrl: document.getElementById("publicUrl").value.trim(),
-    });
-    envStatusEl.textContent = `保存しました: ${path}`;
-    loadStatus();
-  } catch (e) {
-    envStatusEl.textContent = `保存に失敗しました: ${e.message}`;
-  }
-});
-
-// PHANTOM_PUBLIC_URL defaults to localhost, which is right when phantom is used
-// from this PC only. Reaching it from another machine on the LAN needs the
-// Windows host's address, which only Windows can tell us.
-document.getElementById("use-lan").addEventListener("click", async () => {
-  try {
-    const { adapters } = await api("/api/lan-addresses");
-    if (!adapters?.length) {
-      envStatusEl.textContent = "LAN アドレスを取得できませんでした";
-      return;
-    }
-    const port = document.getElementById("httpPort").value || 8080;
-    document.getElementById("publicUrl").value = `http://${adapters[0].ip}:${port}`;
-    envStatusEl.textContent = `${adapters[0].alias} の ${adapters[0].ip} を使います（保存すると反映されます）`;
-  } catch (e) {
-    envStatusEl.textContent = `LAN アドレスの取得に失敗しました: ${e.message}`;
-  }
-});
-
 // --- 取込スクリプト ---------------------------------------------------------
 
-// The picker walks the Windows filesystem, not /mnt. Mapped network drives —
-// which is where the source data lives here — do not appear under /mnt at all,
-// and robocopy runs in the Windows session anyway, so Windows paths are the
-// only ones that mean anything in the generated script.
-
-const sourceEl = document.getElementById("source");
-const pickerEl = document.getElementById("picker");
-const pickerPathEl = document.getElementById("picker-path");
-const pickerListEl = document.getElementById("picker-list");
-const mirrorStatusEl = document.getElementById("mirror-status");
-const mirrorResultEl = document.getElementById("mirror-result");
+// The picker walks the Windows filesystem, not /mnt: mapped network drives do
+// not appear under /mnt at all, and robocopy runs in the Windows session, so
+// Windows paths are the only ones the generated script can use.
 
 let pickerPath = "";
 let pickerParent = "";
 
 async function browse(path) {
-  pickerListEl.replaceChildren();
-  pickerPathEl.textContent = path || "（ドライブ）";
-  mirrorStatusEl.textContent = "読み込み中…";
+  const list = $("picker-list");
+  list.replaceChildren();
+  $("picker-path").textContent = path || "（ドライブ）";
+  $("mirror-status").textContent = "読み込み中…";
   try {
     const data = await api(`/api/browse?path=${encodeURIComponent(path ?? "")}`);
     pickerPath = data.path ?? "";
@@ -301,7 +246,7 @@ async function browse(path) {
       const li = document.createElement("li");
       li.className = "empty";
       li.textContent = "サブフォルダはありません";
-      pickerListEl.append(li);
+      list.append(li);
     }
     for (const row of rows) {
       const li = document.createElement("li");
@@ -310,47 +255,34 @@ async function browse(path) {
       button.textContent = row.label;
       button.addEventListener("click", () => browse(row.path));
       li.append(button);
-      pickerListEl.append(li);
+      list.append(li);
     }
-    document.getElementById("picker-up").disabled = !path;
-    document.getElementById("picker-choose").disabled = !pickerPath;
-    mirrorStatusEl.textContent = "";
+    $("picker-up").disabled = !path;
+    $("picker-choose").disabled = !pickerPath;
+    $("mirror-status").textContent = "";
   } catch (e) {
-    mirrorStatusEl.textContent = `フォルダを読み込めませんでした: ${e.message}`;
+    $("mirror-status").textContent = `フォルダを読み込めませんでした: ${e.message}`;
   }
 }
 
-document.getElementById("browse-open").addEventListener("click", () => {
-  pickerEl.hidden = false;
-  browse(sourceEl.value.trim() || "");
-});
-document.getElementById("picker-close").addEventListener("click", () => {
-  pickerEl.hidden = true;
-});
-document.getElementById("picker-up").addEventListener("click", () => browse(pickerParent));
-document.getElementById("picker-choose").addEventListener("click", () => {
-  sourceEl.value = pickerPath;
-  pickerEl.hidden = true;
-});
-
 function renderMirrorResult(res) {
-  mirrorResultEl.hidden = false;
-  mirrorResultEl.replaceChildren();
+  const el = $("mirror-result");
+  el.hidden = false;
+  el.replaceChildren();
 
-  const rows = [
+  for (const [label, value] of [
     ["スクリプト", res.unc],
     ["取込元", res.source],
     ["取込先", res.dest],
     ["ログ", res.log],
     ["対象", res.patterns.join(" ")],
-  ];
-  for (const [label, value] of rows) {
+  ]) {
     const dt = document.createElement("dt");
     dt.textContent = label;
     const dd = document.createElement("dd");
     dd.className = "mono";
     dd.textContent = value;
-    mirrorResultEl.append(dt, dd);
+    el.append(dt, dd);
   }
 
   const open = document.createElement("button");
@@ -360,104 +292,164 @@ function renderMirrorResult(res) {
     const r = await post("/api/open", { target: res.unc.replace(/\\[^\\]+$/, "") });
     // Interop can be switched off entirely, so the path stays on screen either
     // way for the user to open by hand.
-    if (!r.opened) mirrorStatusEl.textContent = `エクスプローラを開けませんでした: ${r.error}`;
+    if (!r.opened) $("mirror-status").textContent = `エクスプローラを開けませんでした: ${r.error}`;
   });
-  mirrorResultEl.append(open);
+  el.append(open);
 }
 
-document.getElementById("make-script").addEventListener("click", async () => {
-  mirrorStatusEl.textContent = "作成中…";
-  mirrorResultEl.hidden = true;
-  try {
-    const res = await post("/api/mirror-script", { source: sourceEl.value.trim() });
-    mirrorStatusEl.textContent = "作成しました。エクスプローラから実行してください。";
+// --- 操作 -------------------------------------------------------------------
+
+// Each entry is keyed by the action name the server uses, which is also the
+// button's data-action and the endpoint's suffix.
+const ACTIONS = {
+  "repo/clone": () => post("/api/repo/clone"),
+  "repo/pull": () => post("/api/repo/pull"),
+  "repo/fetch": () => post("/api/repo/fetch"),
+  "repo/unpin": () => post("/api/repo/unpin"),
+  "repo/checkout": () => {
+    if (!$("tag").value) throw new Error("バージョンを選択してください");
+    return post("/api/repo/checkout", { tag: $("tag").value });
+  },
+  "compose/build": () => post("/api/compose/build"),
+  "compose/pull": () => post("/api/compose/pull"),
+  "compose/up": () => post("/api/compose/up"),
+  "compose/down": () => post("/api/compose/down"),
+  "mirror/browse": () => {
+    $("picker").hidden = false;
+    return browse($("source").value.trim() || "");
+  },
+  "mirror/create": async () => {
+    $("mirror-status").textContent = "作成中…";
+    $("mirror-result").hidden = true;
+    const res = await post("/api/mirror-script", { source: $("source").value.trim() });
+    $("mirror-status").textContent = "作成しました。エクスプローラから実行してください。";
     renderMirrorResult(res);
-  } catch (e) {
-    mirrorStatusEl.textContent = `作成に失敗しました: ${e.message}`;
-  }
-});
+  },
+  "env/save": async () => {
+    $("env-status").textContent = "保存中…";
+    const { path } = await post("/api/env", {
+      srcDir: $("srcDir").value.trim(),
+      dataDir: $("dataDir").value.trim(),
+      httpPort: Number($("httpPort").value),
+      publicUrl: $("publicUrl").value.trim(),
+    });
+    envDirty = false;
+    $("env-status").textContent = `保存しました: ${path}`;
+    refresh();
+  },
+};
 
-// --- サービス ---------------------------------------------------------------
+// Where an action reports its own failure, so an error lands next to the
+// control that caused it rather than only in the log.
+const ERROR_TARGET = {
+  "repo/": "repo-summary",
+  "env/": "env-status",
+  "mirror/": "mirror-status",
+  "compose/": "compose-error",
+};
 
-const servicesEl = document.getElementById("services");
-const composeErrorEl = document.getElementById("compose-error");
-const phantomUrlEl = document.getElementById("phantom-url");
-
-async function loadServices() {
-  try {
-    const { services, error, url } = await api("/api/compose/ps");
-    composeErrorEl.textContent = error ?? "";
-
-    phantomUrlEl.textContent = url ?? "";
-    phantomUrlEl.href = url ?? "#";
-    phantomUrlEl.hidden = !url;
-
-    servicesEl.replaceChildren();
-    if (!services.length) {
-      const tr = document.createElement("tr");
-      const td = document.createElement("td");
-      td.colSpan = 4;
-      td.className = "muted";
-      td.textContent = error ? "" : "コンテナはありません";
-      tr.append(td);
-      servicesEl.append(tr);
+function reportError(action, message) {
+  for (const [prefix, id] of Object.entries(ERROR_TARGET)) {
+    if (action.startsWith(prefix)) {
+      $(id).textContent = message;
       return;
     }
-    for (const svc of services) {
-      const tr = document.createElement("tr");
-      for (const [value, cls] of [
-        [svc.name, "name"],
-        [svc.health ? `${svc.state} (${svc.health})` : svc.state, svc.running ? "s-ok" : "s-ng"],
-        [svc.status, "muted"],
-        [svc.ports, "mono"],
-      ]) {
-        const td = document.createElement("td");
-        td.className = cls;
-        td.textContent = value ?? "";
-        tr.append(td);
-      }
-      servicesEl.append(tr);
-    }
-  } catch (e) {
-    composeErrorEl.textContent = `状態を取得できませんでした: ${e.message}`;
   }
 }
 
-for (const button of document.querySelectorAll("[data-compose]")) {
+for (const button of document.querySelectorAll("[data-action]")) {
   button.addEventListener("click", async () => {
+    const action = button.dataset.action;
     try {
-      await post(`/api/compose/${button.dataset.compose}`);
+      await ACTIONS[action]();
     } catch (e) {
-      composeErrorEl.textContent = e.message;
+      reportError(action, e.message);
+      // The server may have refused on a condition the page had not seen yet.
+      refresh();
     }
   });
 }
 
-document.getElementById("refresh-ps").addEventListener("click", loadServices);
+$("picker-close").addEventListener("click", () => {
+  $("picker").hidden = true;
+});
+$("picker-up").addEventListener("click", () => browse(pickerParent));
+$("picker-choose").addEventListener("click", () => {
+  $("source").value = pickerPath;
+  $("picker").hidden = true;
+});
+$("cancel").addEventListener("click", () => post("/api/jobs/cancel").catch(() => {}));
+$("clear").addEventListener("click", () => logEl.replaceChildren());
+$("refresh").addEventListener("click", refresh);
 
-// --- 起動 -------------------------------------------------------------------
-
-async function loadHealth() {
+// PHANTOM_PUBLIC_URL defaults to localhost, which is right when phantom is used
+// from this PC only. Reaching it from another machine needs the Windows host's
+// address, which only Windows can tell us.
+$("use-lan").addEventListener("click", async () => {
   try {
-    const h = await api("/api/health");
-    versionEl.textContent = h.version;
-  } catch {
-    versionEl.textContent = "";
+    const { adapters } = await api("/api/lan-addresses");
+    if (!adapters?.length) {
+      $("env-status").textContent = "LAN アドレスを取得できませんでした";
+      return;
+    }
+    const port = $("httpPort").value || 8080;
+    $("publicUrl").value = `http://${adapters[0].ip}:${port}`;
+    envDirty = true;
+    $("env-status").textContent = `${adapters[0].alias} の ${adapters[0].ip} を使います（保存すると反映されます）`;
+  } catch (e) {
+    $("env-status").textContent = `LAN アドレスの取得に失敗しました: ${e.message}`;
+  }
+});
+
+// --- 状態の反映 -------------------------------------------------------------
+
+function applyCapabilities(can, busy) {
+  for (const button of document.querySelectorAll("[data-action]")) {
+    const cap = can[button.dataset.action];
+    if (!cap) continue;
+    button.disabled = !cap.allowed;
+    // A greyed-out button that explains itself on hover beats a dead one.
+    button.title = cap.allowed ? "" : cap.reason;
+  }
+  $("refresh").disabled = busy;
+  $("use-lan").disabled = busy;
+  for (const id of ["srcDir", "dataDir", "httpPort", "publicUrl"]) {
+    $(id).disabled = !can["env/save"]?.allowed;
   }
 }
 
-function refreshAll() {
-  loadStatus();
-  loadRepo();
-  loadEnv();
-  loadServices();
+let refreshing = false;
+
+async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const state = await api("/api/state");
+    renderChecks(state.checks);
+    renderRepo(state.repo);
+    renderEnv(state);
+    renderServices(state);
+
+    const busy = state.job.running;
+    $("job").textContent = busy ? `実行中: ${state.job.name}` : "";
+    $("cancel").hidden = !busy;
+    applyCapabilities(state.can, busy);
+  } catch (e) {
+    $("checked-at").textContent = `状態を取得できませんでした: ${e.message}`;
+  } finally {
+    refreshing = false;
+  }
 }
 
-document.getElementById("clear").addEventListener("click", () => {
-  logEl.replaceChildren();
-});
+async function loadVersion() {
+  try {
+    $("version").textContent = (await api("/api/health")).version;
+  } catch {
+    $("version").textContent = "";
+  }
+}
 
 setConnected(false);
-loadHealth();
-refreshAll();
+loadVersion();
+refresh();
 connect();

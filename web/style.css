@@ -43,7 +43,11 @@ body {
 .badge-on { background: #dcfce7; color: var(--ok); border-color: #86efac; }
 .badge-off { background: #fee2e2; color: var(--err); border-color: #fca5a5; }
 
-main { padding: 16px; display: grid; gap: 16px; }
+main { padding: 16px; display: grid; gap: 16px; max-width: 1400px; margin: 0 auto; }
+
+/* Environment and version sit side by side, as they did in the old form. */
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
 
 .panel {
   background: var(--panel);
@@ -232,4 +236,10 @@ button {
   cursor: pointer;
 }
 button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-button:disabled { opacity: .5; cursor: not-allowed; }
+/* Disabled controls carry the reason in their title attribute, so the cursor
+   invites hovering rather than suggesting the button is simply broken. */
+button:disabled { opacity: .45; cursor: help; }
+
+input:disabled { background: #f3f4f6; color: var(--muted); }
+
+.panel-actions { flex-wrap: wrap; }

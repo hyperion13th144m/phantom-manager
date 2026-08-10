@@ -56,6 +56,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/jobs", s.handleJobStatus)
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 	mux.HandleFunc("GET /api/status", s.handleStatus)
+	mux.HandleFunc("GET /api/state", s.handleState)
 	mux.HandleFunc("POST /api/jobs/cancel", s.handleJobCancel)
 	mux.HandleFunc("GET /api/repo", s.handleRepo)
 	mux.HandleFunc("POST /api/repo/clone", s.handleRepoClone)
@@ -91,11 +92,12 @@ func (s *Server) handleEnvGet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleEnvSave writes .env.docker. It is refused while a job runs: the values
-// here decide what a running compose project has mounted.
+// handleEnvSave writes .env.docker. It is refused while services are up: a
+// running project has these directories bind-mounted, and changing the file
+// underneath it leaves the manager's view and the containers' reality
+// disagreeing.
 func (s *Server) handleEnvSave(w http.ResponseWriter, r *http.Request) {
-	if s.jobs.Busy() {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": jobs.ErrBusy.Error()})
+	if !s.guard(w, r, ActionSaveEnv) {
 		return
 	}
 	var settings envfile.Settings
@@ -167,6 +169,9 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 // fail on, and finding that out now beats finding it out from a batch window
 // that has already closed.
 func (s *Server) handleMirrorScript(w http.ResponseWriter, r *http.Request) {
+	if !s.guard(w, r, ActionMirrorScript) {
+		return
+	}
 	var body struct {
 		Source string `json:"source"`
 	}
@@ -234,19 +239,23 @@ func (s *Server) handleComposePs(w http.ResponseWriter, r *http.Request) {
 // services are digest-pinned images; a plain `compose pull` fails outright
 // trying to fetch the locally built one.
 var composeOps = map[string]struct {
-	label string
-	run   func(*compose.Client, context.Context, func(runner.Line)) error
+	label  string
+	action Action
+	run    func(*compose.Client, context.Context, func(runner.Line)) error
 }{
-	"build": {"es のビルド", (*compose.Client).Build},
-	"pull":  {"イメージの取得", (*compose.Client).Pull},
-	"up":    {"サービスの起動", (*compose.Client).Up},
-	"down":  {"サービスの停止", (*compose.Client).Down},
+	"build": {"ビルド", ActionBuild, (*compose.Client).Build},
+	"pull":  {"イメージの取得", ActionPull2, (*compose.Client).Pull},
+	"up":    {"サービスの起動", ActionUp, (*compose.Client).Up},
+	"down":  {"サービスの停止", ActionDown, (*compose.Client).Down},
 }
 
 func (s *Server) handleComposeOp(w http.ResponseWriter, r *http.Request) {
 	op, ok := composeOps[r.PathValue("op")]
 	if !ok {
 		writeError(w, http.StatusNotFound, fmt.Errorf("不明な操作です: %s", r.PathValue("op")))
+		return
+	}
+	if !s.guard(w, r, op.action) {
 		return
 	}
 	client := compose.New(s.cfg.ReleaseDir)
@@ -286,6 +295,9 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRepoClone(w http.ResponseWriter, r *http.Request) {
+	if !s.guard(w, r, ActionClone) {
+		return
+	}
 	repo := s.repo()
 	s.startJob(w, "phantom-release のクローン", func(ctx context.Context, l *jobs.Log) error {
 		return repo.Clone(ctx, gitrepo.DefaultURL, lineSink(l))
@@ -293,6 +305,9 @@ func (s *Server) handleRepoClone(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRepoPull(w http.ResponseWriter, r *http.Request) {
+	if !s.guard(w, r, ActionPull) {
+		return
+	}
 	repo := s.repo()
 	s.startJob(w, "phantom-release の更新", func(ctx context.Context, l *jobs.Log) error {
 		return repo.Pull(ctx, lineSink(l))
@@ -300,6 +315,9 @@ func (s *Server) handleRepoPull(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRepoFetch(w http.ResponseWriter, r *http.Request) {
+	if !s.guard(w, r, ActionFetch) {
+		return
+	}
 	repo := s.repo()
 	s.startJob(w, "バージョン一覧の取得", func(ctx context.Context, l *jobs.Log) error {
 		return repo.FetchTags(ctx, lineSink(l))
@@ -307,6 +325,9 @@ func (s *Server) handleRepoFetch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRepoCheckout(w http.ResponseWriter, r *http.Request) {
+	if !s.guard(w, r, ActionCheckout) {
+		return
+	}
 	var body struct {
 		Tag string `json:"tag"`
 	}
@@ -323,6 +344,9 @@ func (s *Server) handleRepoCheckout(w http.ResponseWriter, r *http.Request) {
 // handleRepoUnpin leaves a checked-out tag. Without it, pinning a version is a
 // one-way door: pull refuses to run on a detached HEAD.
 func (s *Server) handleRepoUnpin(w http.ResponseWriter, r *http.Request) {
+	if !s.guard(w, r, ActionUnpin) {
+		return
+	}
 	repo := s.repo()
 	s.startJob(w, "最新ブランチへの切り替え", func(ctx context.Context, l *jobs.Log) error {
 		return repo.CheckoutDefaultBranch(ctx, lineSink(l))

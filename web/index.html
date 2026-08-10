@@ -9,59 +9,60 @@
 <body>
 <header class="bar">
   <h1>phantom 全文検索システム管理</h1>
-  <span class="grow"></span>
   <span id="job" class="job"></span>
   <button type="button" id="cancel" hidden>中止</button>
+  <span class="grow"></span>
+  <button type="button" id="refresh">状態を更新</button>
   <span id="conn" class="badge badge-off">未接続</span>
   <span id="version" class="version"></span>
 </header>
 
 <main>
-  <section class="panel">
-    <h2>環境チェック</h2>
-    <ul id="checks" class="checks"></ul>
-    <div class="panel-actions">
-      <button type="button" id="recheck">再チェック</button>
-      <span id="checked-at" class="muted"></span>
-    </div>
-  </section>
+  <div class="row">
+    <section class="panel">
+      <h2>環境チェック</h2>
+      <ul id="checks" class="checks"></ul>
+      <div class="panel-actions">
+        <span id="checked-at" class="muted"></span>
+      </div>
+    </section>
 
-  <section class="panel">
-    <h2>バージョン</h2>
-    <div id="repo-summary" class="summary">読み込み中…</div>
-    <div class="panel-actions">
-      <button type="button" data-op="clone">クローン</button>
-      <button type="button" data-op="pull">更新 (pull)</button>
-      <button type="button" data-op="fetch">バージョン一覧を取得</button>
-    </div>
-    <div class="panel-actions">
-      <label for="tag">バージョン</label>
-      <select id="tag"></select>
-      <button type="button" data-op="checkout">チェックアウト</button>
-      <button type="button" data-op="unpin">最新ブランチに戻す</button>
-    </div>
-  </section>
+    <section class="panel">
+      <h2>バージョン</h2>
+      <div id="repo-summary" class="summary">読み込み中…</div>
+      <div class="panel-actions">
+        <button type="button" data-action="repo/clone">クローン</button>
+        <button type="button" data-action="repo/pull">更新 (pull)</button>
+        <button type="button" data-action="repo/fetch">バージョン一覧を取得</button>
+      </div>
+      <div class="panel-actions">
+        <select id="tag" aria-label="バージョン"></select>
+        <button type="button" data-action="repo/checkout">チェックアウト</button>
+        <button type="button" data-action="repo/unpin">最新ブランチに戻す</button>
+      </div>
+    </section>
+  </div>
 
   <section class="panel">
     <h2>データディレクトリ</h2>
-    <form id="env-form" class="form">
+    <div class="form">
       <label for="srcDir">取込先 (PHANTOM_SRC_DIR)</label>
-      <input type="text" id="srcDir" name="srcDir" spellcheck="false">
+      <input type="text" id="srcDir" spellcheck="false">
 
       <label for="dataDir">展開先 (PHANTOM_DATA_DIR)</label>
-      <input type="text" id="dataDir" name="dataDir" spellcheck="false">
+      <input type="text" id="dataDir" spellcheck="false">
 
       <label for="httpPort">公開ポート (PHANTOM_HTTP_PORT)</label>
-      <input type="number" id="httpPort" name="httpPort" min="1" max="65535">
+      <input type="number" id="httpPort" min="1" max="65535">
 
       <label for="publicUrl">公開 URL (PHANTOM_PUBLIC_URL)</label>
       <div class="field-row">
-        <input type="text" id="publicUrl" name="publicUrl" spellcheck="false">
+        <input type="text" id="publicUrl" spellcheck="false">
         <button type="button" id="use-lan">LAN IP を使う</button>
       </div>
-    </form>
+    </div>
     <div class="panel-actions">
-      <button type="button" id="save-env">.env.docker を保存</button>
+      <button type="button" data-action="env/save">.env.docker を保存</button>
       <span id="env-status" class="muted"></span>
     </div>
   </section>
@@ -76,7 +77,7 @@
     <div class="field-row">
       <label for="source">取込元</label>
       <input type="text" id="source" spellcheck="false" placeholder="P:\jpodata または \\server\share\dir">
-      <button type="button" id="browse-open">フォルダを選ぶ</button>
+      <button type="button" data-action="mirror/browse">フォルダを選ぶ</button>
     </div>
 
     <div id="picker" class="picker" hidden>
@@ -91,20 +92,19 @@
     </div>
 
     <div class="panel-actions">
-      <button type="button" id="make-script">取込スクリプトを作成</button>
+      <button type="button" data-action="mirror/create">取込スクリプトを作成</button>
       <span id="mirror-status" class="muted"></span>
     </div>
-    <div id="mirror-result" class="result" hidden></div>
+    <dl id="mirror-result" class="result" hidden></dl>
   </section>
 
   <section class="panel">
     <h2>サービス</h2>
     <div class="panel-actions">
-      <button type="button" data-compose="build">es をビルド</button>
-      <button type="button" data-compose="pull">イメージを取得</button>
-      <button type="button" data-compose="up">起動</button>
-      <button type="button" data-compose="down">停止</button>
-      <button type="button" id="refresh-ps">状態を更新</button>
+      <button type="button" data-action="compose/build">ビルド</button>
+      <button type="button" data-action="compose/pull">イメージを取得</button>
+      <button type="button" data-action="compose/up">起動</button>
+      <button type="button" data-action="compose/down">停止</button>
       <a id="phantom-url" class="url" href="#" target="_blank" rel="noreferrer"></a>
     </div>
     <div id="compose-error" class="muted"></div>
