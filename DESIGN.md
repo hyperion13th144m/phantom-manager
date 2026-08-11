@@ -31,7 +31,7 @@ WSL2 内でローカル HTTP サーバを起動し、Windows 側のブラウザ�
 | # | 機能 | 概要 |
 |---|---|---|
 | 1 | リポジトリ管理 | phantom-release の `clone` / `pull` |
-| 2 | 取込スクリプト生成 | Windows ローカルディスク → WSL のディレクトリ（例 `~/phantom/data/src`）へファイルをコピーするスクリプトを生成 |
+| 2 | 取込スクリプト生成 | Windows ローカルディスク → WSL のディレクトリ（例 `~/phantom/src`）へファイルをコピーするスクリプトを生成 |
 | 3 | `.env.docker` 生成 | `.env.docker.sample` から WSL2 向けの `.env.docker` を生成 |
 | 4 | Docker Compose 操作 | `build`（**es のみ**）/ `pull` / `up -d` / `down` |
 
@@ -47,7 +47,7 @@ WSL2 内でローカル HTTP サーバを起動し、Windows 側のブラウザ�
     Docker Desktop 統合が有効なら `docker` は PATH 上にある（`/usr/bin/docker` → Desktop の shim）
   - ⚠ 未決: Docker Desktop 前提を維持するか、WSL 内 docker engine 直インストールも許容するか → §8
 - phantom-release の既定配置: `~/phantom/phantom-release`（旧 manager の `AppPaths.DefaultReleaseDir` と同じ）
-- データの既定配置: `~/phantom/data/src`（取込先）、`~/phantom/data`（展開先）
+- データの既定配置: `~/phantom/src`（取込先）、`~/phantom/data`（展開先）
 
 ---
 
@@ -167,7 +167,7 @@ docker compose --env-file .env.docker down
 
 ## 5. 機能 2「取込スクリプト生成」の設計
 
-**Windows のローカルディスク（例 `D:\jpodata`）→ WSL の `~/phantom/data/src` へのコピー。**
+**Windows のローカルディスク（例 `D:\jpodata`）→ WSL の `~/phantom/src` へのコピー。**
 
 ### 旧実装の方式（[MirrorBatchWriter.cs](old/MirrorBatchWriter.cs)）
 
@@ -196,8 +196,8 @@ exit /b %ERRORLEVEL%
    ユーザーは Windows のエクスプローラからダブルクリックして実行する。
    → 書き出し先は `\\wsl.localhost\<distro>\...` から見える場所（WSL の任意の場所でよい）
    → **`.bat` の中身は Windows パス表現**であることに注意（生成する側が Linux でも中身は Windows 用）
-2. **コピー先が `PHANTOM_SRC_DIR`（`~/phantom/data/src`）になる。**
-   `.bat` の `DATA_DIR` には `\\wsl.localhost\<distro>\home\<user>\phantom\data\src` を書く。
+2. **コピー先が `PHANTOM_SRC_DIR`（`~/phantom/src`）になる。**
+   `.bat` の `DATA_DIR` には `\\wsl.localhost\<distro>\home\<user>\phantom\src` を書く。
    → distro 名と Linux 絶対パスから UNC を組む処理は [Form1.cs:668](old/Form1.cs:668) `ToWslUncPath` を移植。
    → **distro 名の取得方法が変わる**（§6-2）
 3. **コピー対象に HTM / GIF / JPG を追加する（cendrillon 対応）。**
@@ -218,7 +218,7 @@ exit /b %ERRORLEVEL%
      取込元に `.html` が存在しうるなら `"*.HTML"` も足すこと → §8-9 で要確認
    - ⚠ **配置先の分離をどうするか**: compose では HTML 由来の文書を cendrillon が
      `${PHANTOM_HTML_SRC_DIR:-${PHANTOM_SRC_DIR}}` から `:ro` で読む（docker-compose.yml:140）。
-     **9 パターンすべてを `~/phantom/data/src` の 1 箇所にコピーするなら、`PHANTOM_HTML_SRC_DIR` は
+     **9 パターンすべてを `~/phantom/src` の 1 箇所にコピーするなら、`PHANTOM_HTML_SRC_DIR` は
      未設定のままでよい**（`PHANTOM_SRC_DIR` にフォールバックする）。これが最も単純。
      分離したい場合のみ `.env.docker` に `PHANTOM_HTML_SRC_DIR` を書き、robocopy も 2 本立てにする → §8-9
 
@@ -231,7 +231,7 @@ exit /b %ERRORLEVEL%
 
 ### robocopy でなく WSL 側でコピーする案について
 
-`cp -r /mnt/d/jpodata/... ~/phantom/data/src` を WSL 内で直接実行することも技術的には可能。
+`cp -r /mnt/d/jpodata/... ~/phantom/src` を WSL 内で直接実行することも技術的には可能。
 ただし **`/mnt/` 経由（9p/drvfs）の I/O は極端に遅く**、数万ファイル規模だと実用にならない。
 旧実装が Windows 側の robocopy にしているのはこの理由と思われるので、**robocopy 方式を維持すべき**。
 （`.bat` を生成してユーザーに実行させる、という要件の書き方もこれと整合している）
@@ -290,7 +290,7 @@ WSL の仮想 NIC の `172.x.x.x` が返り、これは LAN の他 PC からは�
 
 **WSL2 の既定ユーザーは uid=1000 なので、`~/phantom/data` 配下なら sudo 不要でそのまま動く。**
 これはサンプルの `/var/lib/phantom/data`（`sudo install -d -o 1000 -g 1000` が必要）より WSL では素直。
-→ **`.env.docker` 生成時の既定値は `$HOME/phantom/data` 系にすべき**（要件の `~/phantom/data/src` と一致）。
+→ **`.env.docker` 生成時の既定値は `$HOME/phantom` 配下にすべき**（取込先 `~/phantom/src`、展開先 `~/phantom/data`）。
 
 ⚠ 落とし穴: **bind mount 先のディレクトリが存在しないと Docker が root 所有で自動生成し、
 uid 1000 のコンテナが書けなくなる。** `up` の前に manager 側で `mkdir -p` しておくこと
@@ -369,7 +369,7 @@ phantom-manager (単一バイナリ)
 | 6 | 取込元選択は **PowerShell 経由の Windows 名前空間ブラウズ**（当初案の `/mnt` 走査は却下）＋ Windows パス直接入力 | ネットワークドライブが `/mnt` に出ないため。§5 の「新実装で変わる点 4」を参照 |
 | 7 | `PHANTOM_PUBLIC_URL` は `localhost` 既定、UI から Windows の LAN IP に差し替え可 | |
 | 8 | INSTALL.md のスクリーンショット撮り直しは新 UI 完成後の別タスク | |
-| 9 | **11 パターンを 1 箇所（`~/phantom/data/src`）へ**。`PHANTOM_HTML_SRC_DIR` は書かない | `*.HTML` と `*.PNG` を追加。分離はしない |
+| 9 | **11 パターンを 1 箇所（`~/phantom/src`）へ**。`PHANTOM_HTML_SRC_DIR` は書かない | `*.HTML` と `*.PNG` を追加。分離はしない |
 
 **実機で確認した前提（開発機 = Windows + WSL2 / distro 名 `Ubuntu-20.04` / 中身は Ubuntu 24.04）**
 
@@ -424,4 +424,4 @@ echo "$WSL_DISTRO_NAME"; ls /mnt/; wslpath -w /; docker version; docker compose 
 
 リポジトリと参照先:
 - phantom-release: https://github.com/hyperion13th144m/phantom-release
-- 既定の配置: `~/phantom/phantom-release`、データは `~/phantom/data`（`src` が取込先）
+- 既定の配置: `~/phantom/phantom-release`、取込先は `~/phantom/src`、展開先は `~/phantom/data`

@@ -42,8 +42,10 @@ func DefaultReleaseDir() string { return filepath.Join(PhantomDir(), "phantom-re
 // cendrillon, read by mona/panther.
 func DefaultDataDir() string { return filepath.Join(PhantomDir(), "data") }
 
-// DefaultSrcDir is PHANTOM_SRC_DIR: where the mirror script copies to.
-func DefaultSrcDir() string { return filepath.Join(DefaultDataDir(), "src") }
+// DefaultSrcDir is PHANTOM_SRC_DIR: where the mirror script copies to. It sits
+// beside the data dir rather than inside it, so the imported originals are not
+// mixed in with what the pipeline writes.
+func DefaultSrcDir() string { return filepath.Join(PhantomDir(), "src") }
 
 // DefaultMirrorBat is where the generated robocopy script is written. It has to
 // live somewhere reachable from Windows Explorer via \\wsl.localhost\<distro>\.

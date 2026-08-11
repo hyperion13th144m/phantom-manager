@@ -60,7 +60,7 @@ listen は `127.0.0.1` に固定しています。認証のない操作画面を
 1. **環境チェック**で Docker / Git / phantom-release の状態を確認します
 2. **クローン**で phantom-release を取得します（既定の配置先は `~/phantom/phantom-release`）
 3. **データディレクトリ**を設定して `.env.docker を保存`します
-   - 既定は `~/phantom/data/src`（取込先）と `~/phantom/data`（展開先）です。
+   - 既定は `~/phantom/src`（取込先）と `~/phantom/data`（展開先）です。
      コンテナは uid=gid=1000 で動きますが、WSL の既定ユーザーが uid 1000 なので `$HOME` 配下なら sudo は不要です
    - 他の PC から phantom を使う場合は `LAN IP を使う`で公開 URL を書き換えます
 4. **取込スクリプトの作成**で取込元フォルダを選び、生成された `.bat` を Windows のエクスプローラから実行します
