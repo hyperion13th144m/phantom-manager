@@ -165,7 +165,7 @@ func (c *Client) run(ctx context.Context, log func(runner.Line), sub ...string) 
 		return err
 	}
 	args := c.args(sub...)
-	res, err := runner.Run(ctx, c.dir, "docker", args, log)
+	res, err := runner.Run(ctx, c.dir, "docker", args, demoteProgress(log))
 	if err != nil {
 		return err
 	}
