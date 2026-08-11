@@ -149,6 +149,92 @@ func TestSaveIsIdempotentAndKeepsUserEdits(t *testing.T) {
 	}
 }
 
+// The sample is sized for a Linux host. On the WSL2 machines this manager runs
+// on, the sample's 2g heap in a 4g limit starves violet's 4g CLIP load.
+func TestSaveSizesElasticsearchForWSL2(t *testing.T) {
+	release := t.TempDir()
+	if err := os.WriteFile(SamplePath(release), []byte(sample), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(release, settings(t)); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got := parse(readFile(t, Path(release)))
+	for key, want := range wsl2Memory {
+		if got[key] != want {
+			t.Errorf("%s = %q, want %q", key, got[key], want)
+		}
+	}
+}
+
+// Compose defaults ES_JAVA_OPTS and ES_MEM_LIMIT to the large values when the
+// env file says nothing, so an absent key still has to be written.
+func TestSaveAddsTheMemoryProfileWhenTheSampleOmitsIt(t *testing.T) {
+	release := t.TempDir()
+	if err := os.WriteFile(SamplePath(release), []byte("PHANTOM_HTTP_PORT=8080\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(release, settings(t)); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got := parse(readFile(t, Path(release)))
+	for key, want := range wsl2Memory {
+		if got[key] != want {
+			t.Errorf("%s = %q, want %q", key, got[key], want)
+		}
+	}
+}
+
+// Someone who gave WSL2 more memory and raised the heap keeps their value.
+// Imposing a default is a first-generation decision, not a standing policy.
+func TestSaveKeepsATunedMemoryProfile(t *testing.T) {
+	release := t.TempDir()
+	if err := os.WriteFile(SamplePath(release), []byte(sample), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := settings(t)
+	if err := Save(release, s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data := readFile(t, Path(release))
+	tuned := strings.Replace(data, keyESJavaOpts+"=-Xms1g -Xmx1g", keyESJavaOpts+"=-Xms3g -Xmx3g", 1)
+	if tuned == data {
+		t.Fatal("the generated file did not contain the value to replace")
+	}
+	if err := os.WriteFile(Path(release), []byte(tuned), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s.HTTPPort = 9090
+	if err := Save(release, s); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	if got := parse(readFile(t, Path(release)))[keyESJavaOpts]; got != "-Xms3g -Xmx3g" {
+		t.Errorf("%s = %q, the manual edit was lost", keyESJavaOpts, got)
+	}
+}
+
+// The value being replaced stays in the file as a comment, for a machine that
+// later has more memory to give.
+func TestMemoryProfileKeepsTheSampleValueAsAComment(t *testing.T) {
+	out := applyMemoryProfile(sample)
+	if !strings.Contains(out, "# ES_JAVA_OPTS=-Xms2g -Xmx2g") {
+		t.Errorf("the sample's value should be kept as a comment:\n%s", out)
+	}
+}
+
+// A duplicate later in the file would win over the one we wrote.
+func TestMemoryProfileNeutralisesDuplicateKeys(t *testing.T) {
+	out := applyMemoryProfile("ES_MEM_LIMIT=4g\nES_PASSWORD=x\nES_MEM_LIMIT=8g\n")
+	if got := parse(out)[keyESMemLimit]; got != wsl2Memory[keyESMemLimit] {
+		t.Errorf("%s = %q, want %q", keyESMemLimit, got, wsl2Memory[keyESMemLimit])
+	}
+	if !strings.Contains(out, "# ES_MEM_LIMIT=8g") {
+		t.Errorf("the duplicate should be commented out:\n%s", out)
+	}
+}
+
 func TestSaveCreatesTheBindMountTargets(t *testing.T) {
 	release := t.TempDir()
 	if err := os.WriteFile(SamplePath(release), []byte(sample), 0o644); err != nil {

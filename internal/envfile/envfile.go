@@ -38,6 +38,9 @@ const (
 	keyDataDir    = "PHANTOM_DATA_DIR"
 	keyHTTPPort   = "PHANTOM_HTTP_PORT"
 	keyPublicURL  = "PHANTOM_PUBLIC_URL"
+
+	keyESJavaOpts = "ES_JAVA_OPTS"
+	keyESMemLimit = "ES_MEM_LIMIT"
 )
 
 // Settings are the values the manager owns.
@@ -156,9 +159,12 @@ func Save(releaseDir string, s Settings) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
-	base, err := readBase(releaseDir)
+	base, fromSample, err := readBase(releaseDir)
 	if err != nil {
 		return err
+	}
+	if fromSample {
+		base = applyMemoryProfile(base)
 	}
 	if err := s.EnsureDirs(); err != nil {
 		return err
@@ -167,18 +173,91 @@ func Save(releaseDir string, s Settings) error {
 	return os.WriteFile(Path(releaseDir), []byte(rendered), 0o644)
 }
 
-func readBase(releaseDir string) (string, error) {
+// readBase returns the text to render over, and whether it came from the
+// sample. Only a first generation may impose defaults; once the file exists,
+// its values are the user's.
+func readBase(releaseDir string) (string, bool, error) {
 	if data, err := os.ReadFile(Path(releaseDir)); err == nil {
-		return string(data), nil
+		return string(data), false, nil
 	}
 	data, err := os.ReadFile(SamplePath(releaseDir))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("%s が見つかりません。phantom-release を取得してください", SamplePath(releaseDir))
+			return "", false, fmt.Errorf("%s が見つかりません。phantom-release を取得してください", SamplePath(releaseDir))
 		}
-		return "", err
+		return "", false, err
 	}
-	return string(data), nil
+	return string(data), true, nil
+}
+
+// wsl2Memory sizes Elasticsearch for a WSL2 VM.
+//
+// The sample is written for a Linux host that can hand the containers all of
+// its memory. WSL2 gives the VM half the machine by default, and INSTALL.md has
+// it pinned to 10 GB on a 16 GB PC, of which the VM itself takes 1–1.5 GB. The
+// sample's 2 GB heap inside a 4 GB limit does not leave enough of the remainder
+// for violet, whose peak while loading CLIP is 4 GB and cannot be reduced
+// — the pipeline is OOM killed partway through instead.
+//
+// These are the values phantom-release documents for this exact case in
+// docs/production.md ("16 GB のホストでの回し方"), where the arithmetic is
+// worked through stage by stage.
+var wsl2Memory = map[string]string{
+	keyESJavaOpts: "-Xms1g -Xmx1g",
+	keyESMemLimit: "2g",
+}
+
+// applyMemoryProfile rewrites the sample's Elasticsearch sizing before the
+// managed keys are rendered over it.
+//
+// This runs only on a first generation. Someone who has since raised the heap
+// because they gave WSL2 more memory should keep it, and Save leaves an
+// existing file's values alone for the same reason it preserves every other
+// setting the manager does not own.
+func applyMemoryProfile(sample string) string {
+	seen := map[string]bool{}
+
+	var out strings.Builder
+	sc := bufio.NewScanner(strings.NewReader(sample))
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for sc.Scan() {
+		line := sc.Text()
+		key := keyOf(line)
+		v, ok := wsl2Memory[key]
+		if !ok {
+			out.WriteString(line + "\n")
+			continue
+		}
+		if seen[key] {
+			// A later duplicate would override what we just wrote.
+			out.WriteString("# " + line + "\n")
+			continue
+		}
+		seen[key] = true
+		// The sample's value is kept as a comment: it is what a machine with
+		// more memory to spare should go back to.
+		out.WriteString("# phantom-manager: WSL2 に 10GB を割り当てた 16GB 機に合わせています\n")
+		out.WriteString("# " + line + "\n")
+		out.WriteString(key + "=" + v + "\n")
+	}
+
+	// A sample that never mentioned them still needs the values: compose falls
+	// back to the compose file's own defaults otherwise, which are the large
+	// ones this profile exists to avoid.
+	var missing []string
+	for _, k := range []string{keyESJavaOpts, keyESMemLimit} {
+		if !seen[k] {
+			missing = append(missing, k+"="+wsl2Memory[k])
+		}
+	}
+	if len(missing) > 0 {
+		if !strings.HasSuffix(out.String(), "\n\n") {
+			out.WriteString("\n")
+		}
+		out.WriteString("# phantom-manager: WSL2 に 10GB を割り当てた 16GB 機に合わせています\n")
+		out.WriteString(strings.Join(missing, "\n") + "\n")
+	}
+	return out.String()
 }
 
 // Render rewrites the managed keys in base, leaving comments, blank lines and
