@@ -236,6 +236,10 @@ button {
   cursor: pointer;
 }
 button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+/* Destructive actions read as such before they are clicked, not only in the
+   confirmation dialog. */
+button.danger { color: var(--err); }
+button.danger:hover:not(:disabled) { border-color: var(--err); color: var(--err); }
 /* Disabled controls carry the reason in their title attribute, so the cursor
    invites hovering rather than suggesting the button is simply broken. */
 button:disabled { opacity: .45; cursor: help; }

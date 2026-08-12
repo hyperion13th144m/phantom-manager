@@ -29,10 +29,11 @@ const (
 	ActionBrowse       Action = "mirror/browse"
 	ActionMirrorScript Action = "mirror/create"
 
-	ActionBuild Action = "compose/build"
-	ActionPull2 Action = "compose/pull"
-	ActionUp    Action = "compose/up"
-	ActionDown  Action = "compose/down"
+	ActionBuild    Action = "compose/build"
+	ActionPull2    Action = "compose/pull"
+	ActionUp       Action = "compose/up"
+	ActionDown     Action = "compose/down"
+	ActionRemoveES Action = "compose/es-volume-rm"
 )
 
 // Capability is whether an action may run, and why not when it may not. The
@@ -58,6 +59,7 @@ type Facts struct {
 	EnvTemplate     bool // .env.docker or .env.docker.sample is present
 	EnvExists       bool // .env.docker has been generated
 	ServicesRunning bool
+	ContainersExist bool // the project has containers, running or stopped
 }
 
 // State is the whole picture the UI renders from, gathered in one pass so the
@@ -104,6 +106,9 @@ func capabilities(f Facts) map[Action]Capability {
 		whyRunning   = "サービスを停止してから操作してください"
 		whyStopped   = "サービスが起動していません"
 		whyHaveRepo  = "既に取得済みです"
+		// docker refuses to remove a volume any container still references, and
+		// "停止" removes the containers as well as stopping them.
+		whyContainers = "「停止」でコンテナを削除してから操作してください"
 	)
 
 	allow := func(conds ...struct {
@@ -157,6 +162,10 @@ func capabilities(f Facts) map[Action]Capability {
 		// conditions that might have gone wrong; if the project files are
 		// unusable, compose says so, which beats a disabled button.
 		ActionDown: allow(notBusy, cond(f.ServicesRunning, whyStopped)),
+		// Throwing away the index needs the compose file to find the volume by,
+		// and every container gone — a stopped one still holds the volume, so
+		// "no container at all" is the condition, not "nothing running".
+		ActionRemoveES: allow(notBusy, projectReady, envExists, cond(!f.ContainersExist, whyContainers)),
 	}
 }
 
@@ -201,6 +210,7 @@ func (s *Server) gather(ctx context.Context) State {
 		EnvTemplate:     envSaved || fileExists(envfile.SamplePath(s.cfg.ReleaseDir)),
 		EnvExists:       envSaved,
 		ServicesRunning: running,
+		ContainersExist: len(st.Services) > 0,
 	})
 	return st
 }

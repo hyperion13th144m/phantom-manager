@@ -234,19 +234,24 @@ func (s *Server) handleComposePs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, body)
 }
 
-// composeOps are the four operations the requirements ask for. build and pull
-// are separate because es is built from infra/es while the other twelve
-// services are digest-pinned images; a plain `compose pull` fails outright
-// trying to fetch the locally built one.
+// composeOps are the operations the service panel offers. build and pull are
+// separate because es is built from infra/es while the other twelve services
+// are digest-pinned images; a plain `compose pull` fails outright trying to
+// fetch the locally built one.
+//
+// es-volume-rm is deliberately not `down -v`: that would take every service's
+// state with it, while the one thing worth throwing away on its own is the
+// elasticsearch index, which is rebuilt from the data directory anyway.
 var composeOps = map[string]struct {
 	label  string
 	action Action
 	run    func(*compose.Client, context.Context, func(runner.Line)) error
 }{
-	"build": {"ビルド", ActionBuild, (*compose.Client).Build},
-	"pull":  {"イメージの取得", ActionPull2, (*compose.Client).Pull},
-	"up":    {"サービスの起動", ActionUp, (*compose.Client).Up},
-	"down":  {"サービスの停止", ActionDown, (*compose.Client).Down},
+	"build":        {"ビルド", ActionBuild, (*compose.Client).Build},
+	"pull":         {"イメージの取得", ActionPull2, (*compose.Client).Pull},
+	"up":           {"サービスの起動", ActionUp, (*compose.Client).Up},
+	"down":         {"サービスの停止", ActionDown, (*compose.Client).Down},
+	"es-volume-rm": {"Elasticsearch データの削除", ActionRemoveES, (*compose.Client).RemoveESVolume},
 }
 
 func (s *Server) handleComposeOp(w http.ResponseWriter, r *http.Request) {

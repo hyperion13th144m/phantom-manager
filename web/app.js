@@ -315,6 +315,17 @@ const ACTIONS = {
   "compose/pull": () => post("/api/compose/pull"),
   "compose/up": () => post("/api/compose/up"),
   "compose/down": () => post("/api/compose/down"),
+  // The only irreversible button on the page, so it asks first. The index is
+  // rebuilt from PHANTOM_DATA_DIR, which this does not touch.
+  "compose/es-volume-rm": () => {
+    const ok = confirm(
+      "Elasticsearch のデータ (ボリューム) を削除します。\n" +
+        "検索インデックスは失われ、次回の起動後に作り直しになります。\n\n" +
+        "実行しますか？",
+    );
+    if (!ok) return;
+    return post("/api/compose/es-volume-rm");
+  },
   "mirror/browse": () => {
     $("picker").hidden = false;
     return browse($("source").value.trim() || "");

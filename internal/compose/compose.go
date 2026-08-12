@@ -62,25 +62,48 @@ func (c *Client) Ps(ctx context.Context) ([]Service, error) {
 	return parsePs(out)
 }
 
+// projectConfig is the part of `compose config` we read: what each service
+// declares, and the real docker names of the project's named volumes.
+type projectConfig struct {
+	Name     string `json:"name"`
+	Services map[string]struct {
+		Build   json.RawMessage `json:"build"`
+		Volumes []struct {
+			Type   string `json:"type"`
+			Source string `json:"source"`
+			Target string `json:"target"`
+		} `json:"volumes"`
+	} `json:"services"`
+	Volumes map[string]struct {
+		Name string `json:"name"`
+	} `json:"volumes"`
+}
+
+// config resolves the compose file the way compose itself does, with the env
+// file applied, so we read the same project the operations act on.
+func (c *Client) config(ctx context.Context) (projectConfig, error) {
+	var cfg projectConfig
+	if err := c.preflight(); err != nil {
+		return cfg, err
+	}
+	out, code := runner.Capture(ctx, c.dir, "docker", c.args("config", "--format", "json"))
+	if code != 0 {
+		return cfg, fmt.Errorf("compose config に失敗しました: %s", firstLine(out))
+	}
+	if err := json.Unmarshal([]byte(out), &cfg); err != nil {
+		return cfg, fmt.Errorf("compose config の出力を解釈できませんでした: %w", err)
+	}
+	return cfg, nil
+}
+
 // Definitions lists the declared services and which of them are built locally.
 //
 // The split is read from the compose file rather than hardcoded to "es": if
 // phantom-release ever builds something else, build and pull follow along.
 func (c *Client) Definitions(ctx context.Context) ([]Definition, error) {
-	if err := c.preflight(); err != nil {
+	cfg, err := c.config(ctx)
+	if err != nil {
 		return nil, err
-	}
-	out, code := runner.Capture(ctx, c.dir, "docker", c.args("config", "--format", "json"))
-	if code != 0 {
-		return nil, fmt.Errorf("compose config に失敗しました: %s", firstLine(out))
-	}
-	var cfg struct {
-		Services map[string]struct {
-			Build json.RawMessage `json:"build"`
-		} `json:"services"`
-	}
-	if err := json.Unmarshal([]byte(out), &cfg); err != nil {
-		return nil, fmt.Errorf("compose config の出力を解釈できませんでした: %w", err)
 	}
 	defs := make([]Definition, 0, len(cfg.Services))
 	for name, svc := range cfg.Services {
@@ -138,6 +161,75 @@ func (c *Client) Up(ctx context.Context, log func(runner.Line)) error {
 // Down stops the project and removes its containers.
 func (c *Client) Down(ctx context.Context, log func(runner.Line)) error {
 	return c.run(ctx, log, "down")
+}
+
+// ESService is the service whose data volume the UI offers to delete.
+const ESService = "es"
+
+// ESVolume returns the docker volume name behind the elasticsearch index.
+//
+// It is resolved from the compose file rather than assembled from the project
+// name, so a renamed volume or a project run under a different name still finds
+// the right one — deleting a volume is not something to guess at.
+func (c *Client) ESVolume(ctx context.Context) (string, error) {
+	cfg, err := c.config(ctx)
+	if err != nil {
+		return "", err
+	}
+	return esVolumeName(cfg)
+}
+
+func esVolumeName(cfg projectConfig) (string, error) {
+	svc, ok := cfg.Services[ESService]
+	if !ok {
+		return "", fmt.Errorf("サービス %s が docker-compose.yml にありません", ESService)
+	}
+	for _, m := range svc.Volumes {
+		if m.Type != "volume" || m.Source == "" {
+			continue // bind mounts belong to the host, not to us
+		}
+		if v, ok := cfg.Volumes[m.Source]; ok && v.Name != "" {
+			return v.Name, nil
+		}
+		if cfg.Name == "" {
+			return "", fmt.Errorf("ボリューム %s の実体名を特定できませんでした", m.Source)
+		}
+		return cfg.Name + "_" + m.Source, nil
+	}
+	return "", fmt.Errorf("サービス %s に名前付きボリュームがありません", ESService)
+}
+
+// RemoveESVolume deletes the elasticsearch data volume, throwing away the index.
+//
+// Removal is refused by docker while any container still references the volume,
+// even a stopped one, which is why the UI gates this on the project being down.
+// A volume that is already gone counts as done: the point of the button is to
+// leave no index behind, and there is nothing to report when there was none.
+func (c *Client) RemoveESVolume(ctx context.Context, log func(runner.Line)) error {
+	name, err := c.ESVolume(ctx)
+	if err != nil {
+		return err
+	}
+	args := []string{"volume", "rm", name}
+	res, err := runner.Run(ctx, c.dir, "docker", args, log)
+	if err != nil {
+		return err
+	}
+	if !res.OK() {
+		if strings.Contains(res.Output, "no such volume") {
+			emit(log, name+" は存在しません（削除済みです）")
+			return nil
+		}
+		return runner.Errorf("docker", args, res)
+	}
+	emit(log, "Elasticsearch のデータを削除しました。次回の起動後にインデックスを作り直してください。")
+	return nil
+}
+
+func emit(log func(runner.Line), text string) {
+	if log != nil {
+		log(runner.Line{Kind: runner.KindOut, Text: text})
+	}
 }
 
 // split returns the service names on one side of the build/pull divide.

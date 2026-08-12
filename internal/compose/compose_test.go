@@ -143,6 +143,69 @@ func TestArgsAlwaysPassTheEnvFile(t *testing.T) {
 	}
 }
 
+// Real `compose config --format json` output for the es service, trimmed to the
+// fields we read. Compose resolves the volume's docker name itself, which is
+// what we delete — deriving it from the project name is only the fallback.
+const esConfig = `{
+  "name": "phantom-release",
+  "services": {
+    "es": {
+      "image": "phantom-elasticsearch",
+      "build": {"context": "./infra/es"},
+      "volumes": [{"type": "volume", "source": "es-data", "target": "/usr/share/elasticsearch/data", "volume": {}}]
+    }
+  },
+  "volumes": {"es-data": {"name": "phantom-release_es-data"}}
+}`
+
+func parseConfig(t *testing.T, in string) projectConfig {
+	t.Helper()
+	var cfg projectConfig
+	if err := json.Unmarshal([]byte(in), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func TestESVolumeUsesTheNameComposeResolved(t *testing.T) {
+	got, err := esVolumeName(parseConfig(t, esConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "phantom-release_es-data" {
+		t.Errorf("volume = %q, want phantom-release_es-data", got)
+	}
+}
+
+// Older compose does not fill the resolved name in, so the project prefix is
+// applied the same way compose would.
+func TestESVolumeFallsBackToTheProjectPrefix(t *testing.T) {
+	cfg := parseConfig(t, esConfig)
+	cfg.Volumes = nil
+	got, err := esVolumeName(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "phantom-release_es-data" {
+		t.Errorf("volume = %q, want the project-prefixed name", got)
+	}
+}
+
+// Deleting the wrong volume is not recoverable, so anything unexpected has to
+// fail rather than fall back to a guess.
+func TestESVolumeRefusesWhenThereIsNothingToDelete(t *testing.T) {
+	for name, in := range map[string]string{
+		"no es service": `{"name": "p", "services": {"nginx": {}}, "volumes": {}}`,
+		"bind mount only": `{"name": "p", "services": {"es": {"volumes": [
+			{"type": "bind", "source": "/home/u/phantom/data", "target": "/data"}]}}}`,
+		"no volumes at all": `{"name": "p", "services": {"es": {}}}`,
+	} {
+		if got, err := esVolumeName(parseConfig(t, in)); err == nil {
+			t.Errorf("%s: resolved %q, want an error", name, got)
+		}
+	}
+}
+
 func TestPreflightExplainsWhatIsMissing(t *testing.T) {
 	err := New("/tmp/definitely-not-a-checkout-xyz").preflight()
 	if err == nil {

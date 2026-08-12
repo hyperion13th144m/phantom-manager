@@ -333,7 +333,7 @@ phantom-manager (単一バイナリ)
       ├ GET  /api/browse?path=     … /mnt 配下のディレクトリ列挙（取込元選択用）
       ├ POST /api/mirror-script    … .bat 生成
       ├ GET  /api/compose/ps
-      └ POST /api/compose/build|pull|up|down
+      └ POST /api/compose/build|pull|up|down|es-volume-rm
 ```
 
 - 起動したら `http://127.0.0.1:<port>` を stdout に出し、可能なら `explorer.exe`/`wslview` で自動オープン

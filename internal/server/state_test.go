@@ -71,6 +71,35 @@ func TestDownNeedsSomethingRunning(t *testing.T) {
 	mustRefuse(t, ready(), ActionDown)
 }
 
+// docker refuses to remove a volume any container still references, and a
+// stopped container references it just as much as a running one. Gating this on
+// ServicesRunning would have produced a button that fails after "停止" only
+// removed the containers half way.
+func TestRemovingTheESVolumeNeedsEveryContainerGone(t *testing.T) {
+	mustAllow(t, ready(), ActionRemoveES)
+
+	stopped := ready()
+	stopped.ContainersExist = true // present but exited
+	mustRefuse(t, stopped, ActionRemoveES)
+
+	running := ready()
+	running.ContainersExist = true
+	running.ServicesRunning = true
+	mustRefuse(t, running, ActionRemoveES)
+}
+
+// The volume is found by reading the compose file, so there has to be one, and
+// the env file it is resolved with has to exist.
+func TestRemovingTheESVolumeNeedsTheProject(t *testing.T) {
+	noProject := ready()
+	noProject.ProjectReady = false
+	mustRefuse(t, noProject, ActionRemoveES)
+
+	noEnv := ready()
+	noEnv.EnvExists = false
+	mustRefuse(t, noEnv, ActionRemoveES)
+}
+
 // Refusing before the transfer beats git failing after it.
 func TestCloneOnlyWhenTheDirectoryIsAbsent(t *testing.T) {
 	mustRefuse(t, ready(), ActionClone)
